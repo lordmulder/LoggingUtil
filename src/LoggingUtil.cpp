@@ -53,6 +53,12 @@ public:
 	QString childProgram;
 	QStringList childArgs;
 	QString logFile;
+	bool captureStdout;
+	bool captureStderr;
+	bool enableSimplify;
+	bool verboseMode;
+	QString regExpKeep;
+	QString regExpSkip;
 };
 
 //Forward declarations
@@ -95,6 +101,12 @@ static int logging_util_main(int argc, wchar_t* argv[])
 	//Create the logger
 	CLogProcessor *processor = new CLogProcessor(logFile);
 
+	//Setup parameters
+	processor->setCaptureStreams(parameters.captureStdout, parameters.captureStderr);
+	processor->setSimplifyStrings(parameters.enableSimplify);
+	processor->setVerboseOutput(parameters.verboseMode);
+	processor->setFilterStrings(parameters.regExpKeep, parameters.regExpSkip);
+
 	//Try to start the process
 	if(!processor->startProcess(parameters.childProgram, parameters.childArgs))
 	{
@@ -127,6 +139,12 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 	parameters->childProgram.clear();
 	parameters->childArgs.clear();
 	parameters->logFile.clear();
+	parameters->captureStdout = true;
+	parameters->captureStderr = true;
+	parameters->enableSimplify = true;
+	parameters->verboseMode = true;
+	parameters->regExpKeep.clear();
+	parameters->regExpSkip.clear();
 
 	//Make sure user has set parameters
 	if(argc < 2)
@@ -149,6 +167,34 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 			{
 				if(!CHECK_ARGUMENT) return false;
 				parameters->logFile = QString::fromUtf16(reinterpret_cast<const ushort*>(argv[++i])).trimmed();
+			}
+			else if(!current.compare("--only-stdout", Qt::CaseInsensitive))
+			{
+				parameters->captureStdout = true;
+				parameters->captureStderr = false;
+			}
+			else if(!current.compare("--only-stderr", Qt::CaseInsensitive))
+			{
+				parameters->captureStdout = false;
+				parameters->captureStderr = true;
+			}
+			else if(!current.compare("--no-simplify", Qt::CaseInsensitive))
+			{
+				parameters->enableSimplify = false;
+			}
+			else if(!current.compare("--no-verbose", Qt::CaseInsensitive))
+			{
+				parameters->verboseMode = false;
+			}
+			else if(!current.compare("--regexp-keep", Qt::CaseInsensitive))
+			{
+				if(!CHECK_ARGUMENT) return false;
+				parameters->regExpKeep = QString::fromUtf16(reinterpret_cast<const ushort*>(argv[++i])).trimmed();
+			}
+			else if(!current.compare("--regexp-skip", Qt::CaseInsensitive))
+			{
+				if(!CHECK_ARGUMENT) return false;
+				parameters->regExpSkip = QString::fromUtf16(reinterpret_cast<const ushort*>(argv[++i])).trimmed();
 			}
 			else
 			{
@@ -196,13 +242,16 @@ static void printUsage(void)
 {
 	printHeader();
 	fprintf(stderr, "Usage:\n");
-	fprintf(stderr, "  LoggingUtil.exe [options] : SomeProgram.exe [parameters]\n");
+	fprintf(stderr, "  LoggingUtil.exe [logging options] : SomeProgram.exe [program parameters]\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Options:\n");
-	fprintf(stderr, "  --logfile <file>  Specifies the log file to write to\n");
-	fprintf(stderr, "  --only-stdout     Capture only output from STDOUT, ignores STDERR\n");
-	fprintf(stderr, "  --only-stderr     Capture only output from STDERR, ignores STDOUT\n");
-	fprintf(stderr, "  --no-simplify     Do NOT simplify the strings (default is: on)\n");
+	fprintf(stderr, "  --logfile <logfile>  Specifies the log file to write to (appends)\n");
+	fprintf(stderr, "  --only-stdout        Capture only output from STDOUT, ignores STDERR\n");
+	fprintf(stderr, "  --only-stderr        Capture only output from STDERR, ignores STDOUT\n");
+	fprintf(stderr, "  --no-simplify        Do NOT simplify/trimm the logged strings (default: on)\n");
+	fprintf(stderr, "  --no-verbose         Do NOT write verbose output to log file (default: on)\n");
+	fprintf(stderr, "  --regexp-keep <exp>  Keep ONLY strings that match the given RegExp\n");
+	fprintf(stderr, "  --regexp-skip <exp>  Skip all the strings that match the given RegExp\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Example:\n");
 	fprintf(stderr, "  LoggingUtil.exe --logfile x264_log.txt : x264.exe -o output.mkv input.avs\n");

@@ -50,6 +50,7 @@ CLogProcessor::CLogProcessor(QFile &logFile)
 	m_logStdout(true),
 	m_logStderr(true),
 	m_simplify(true),
+	m_verbose(true),
 	m_logIsEmpty(false),
 	m_exitCode(-1)
 {
@@ -66,14 +67,14 @@ CLogProcessor::CLogProcessor(QFile &logFile)
 	m_codecStderr = QTextCodec::codecForName("UTF-8");
 
 	//Setup regular exporession
-	m_regExp = new QRegExp("(\\f|\\n|\\r|\\v)");
+	m_regExpEOL = new QRegExp("(\\f|\\n|\\r|\\v)");
+	m_regExpKeep = m_regExpSkip = NULL;
 
 	//Assign the log file
 	m_logFile = new QTextStream(&logFile);
 	m_logFile->setCodec(QTextCodec::codecForName("UTF-8"));
 	m_logIsEmpty = (logFile.size() == 0);
-
-
+	
 	//Create event loop
 	m_eventLoop = new QEventLoop();
 }
@@ -90,7 +91,10 @@ CLogProcessor::~CLogProcessor(void)
 	}
 	
 	SAFE_DEL(m_process);
-	SAFE_DEL(m_regExp);
+	SAFE_DEL(m_regExpEOL);
+	SAFE_DEL(m_regExpKeep);
+	SAFE_DEL(m_regExpSkip);
+	SAFE_DEL(m_eventLoop);
 	SAFE_DEL(m_logFile);
 }
 
@@ -189,7 +193,7 @@ void CLogProcessor::processData(const QByteArray &data, const int channel)
 
 	buffer->append(decoder->toUnicode(data).replace(QChar('\b'), QChar('\r')));
 
-	int pos = m_regExp->indexIn(*buffer);
+	int pos = m_regExpEOL->indexIn(*buffer);
 	while(pos >= 0)
 	{
 		if(pos > 0)
@@ -197,7 +201,7 @@ void CLogProcessor::processData(const QByteArray &data, const int channel)
 			logString(m_simplify ? buffer->left(pos).simplified() : buffer->left(pos), channel);
 		}
 		buffer->remove(0, pos + 1);
-		pos = m_regExp->indexIn(*buffer);
+		pos = m_regExpEOL->indexIn(*buffer);
 	}
 }
 
@@ -206,11 +210,26 @@ void CLogProcessor::processData(const QByteArray &data, const int channel)
  */
 void CLogProcessor::logString(const QString &data, const int channel)
 {
-	/*TODO: Implement filtering!*/
+	//Do not any empty strings!
+	if(data.isEmpty() || ((!m_verbose) && (channel == CHANNEL_OTHERS)))
+	{
+		return;
+	}
+	
+	//Filter out strings
+	if(channel != CHANNEL_OTHERS)
+	{
+		if(m_regExpKeep)
+		{
+			if(m_regExpKeep->indexIn(data) < 0) return;
+		}
+		if(m_regExpSkip)
+		{
+			if(m_regExpSkip->indexIn(data) >= 0) return;
+		}
+	}
 
 	QChar chan;
-	static const QString format("yyyy-MM-dd hh:mm:ss");
-
 	switch(channel)
 	{
 	case CHANNEL_STDOUT:
@@ -226,7 +245,16 @@ void CLogProcessor::logString(const QString &data, const int channel)
 		throw "Bad selection!";
 	}
 
-	m_logFile->operator<<(QString("[%1] %2: %3\r\n").arg(chan, QDateTime::currentDateTime().toString(format), data));
+	static const QString format("yyyy-MM-dd hh:mm:ss");
+
+	if(m_verbose)
+	{
+		m_logFile->operator<<(QString("[%1] %2: %3\r\n").arg(chan, QDateTime::currentDateTime().toString(format), data));
+	}
+	else
+	{
+		m_logFile->operator<<(QString("%1\r\n").arg(data));
+	}
 }
 
 /*
@@ -234,7 +262,67 @@ void CLogProcessor::logString(const QString &data, const int channel)
  */
 void CLogProcessor::processFinished(int exitCode)
 {
+	//Process pending outputs
+	readFromStdout();
+	readFromStderr();
+
+	//Flush buffer contents
+	if(m_logStdout && (!m_bufferStdout.isEmpty()))
+	{
+		logString(m_simplify ? m_bufferStdout.simplified() : m_bufferStdout, CHANNEL_STDOUT);
+		m_bufferStdout.clear();
+	}
+	if(m_logStderr && (!m_bufferStderr.isEmpty()))
+	{
+		logString(m_simplify ? m_bufferStderr.simplified() : m_bufferStderr, CHANNEL_STDERR);
+		m_bufferStderr.clear();
+	}
+	
+	//Now return the exit code
 	m_exitCode = exitCode;
 	logString(QString().sprintf("Process has terminated (Exit Code: 0x%08X)", exitCode), CHANNEL_OTHERS);
 	m_eventLoop->exit(m_exitCode);
+}
+
+/*
+ * Set which streams to capture
+ */
+void CLogProcessor::setCaptureStreams(const bool captureStdout, const bool captureStderr)
+{
+	m_logStdout = captureStdout;
+	m_logStderr = captureStderr;
+}
+
+/*
+ * Set whether strings are simplified/trimmed
+ */
+void CLogProcessor::setSimplifyStrings(const bool simplify)
+{
+	m_simplify = simplify;
+}
+
+/*
+ * Set verbose logging mode
+ */
+void CLogProcessor::setVerboseOutput(const bool verbose)
+{
+	m_verbose = verbose;
+}
+
+/*
+ * Set regular expressions for filtering
+ */
+void CLogProcessor::setFilterStrings(const QString &regExpKeep, const QString &regExpSkip)
+{
+	if(!regExpKeep.isEmpty())
+	{
+		SAFE_DEL(m_regExpKeep);
+		m_regExpKeep = new QRegExp(regExpKeep);
+	}
+
+	if(!regExpSkip.isEmpty())
+	{
+		SAFE_DEL(m_regExpSkip);
+		m_regExpSkip = new QRegExp(regExpSkip);
+	}
 }

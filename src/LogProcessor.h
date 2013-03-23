@@ -42,6 +42,11 @@ public:
 	bool startProcess(const QString &program, const QStringList &arguments);
 	int exec(void);
 
+	void setCaptureStreams(const bool captureStdout, const bool captureStderr);
+	void setSimplifyStrings(const bool simplify);
+	void setVerboseOutput(const bool verbose);
+	void setFilterStrings(const QString &regExpKeep, const QString &regExpSkip);
+
 private slots:
 	void readFromStdout(void);
 	void readFromStderr(void);
@@ -56,11 +61,14 @@ private:
 	bool m_logStderr;
 	bool m_simplify;
 	bool m_logIsEmpty;
+	bool m_verbose;
 	QTextCodec *m_codecStdout;
 	QTextCodec *m_codecStderr;
 	QString m_bufferStdout;
 	QString m_bufferStderr;
-	QRegExp *m_regExp;
+	QRegExp *m_regExpEOL;
+	QRegExp *m_regExpSkip;
+	QRegExp *m_regExpKeep;
 	QTextStream *m_logFile;
 	int m_exitCode;
 	QEventLoop *m_eventLoop;
