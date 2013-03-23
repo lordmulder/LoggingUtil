@@ -26,18 +26,26 @@
 //Forward declaration
 class QProcess;
 class QTextDecoder;
+class QStringList;
+class QTextStream;
+class QFile;
+class QEventLoop;
 
 class CLogProcessor : public QObject
 {
 	Q_OBJECT
 
 public:
-	CLogProcessor(void);
+	CLogProcessor(QFile &logFile);
 	~CLogProcessor(void);
+
+	bool startProcess(const QString &program, const QStringList &arguments);
+	int exec(void);
 
 private slots:
 	void readFromStdout(void);
 	void readFromStderr(void);
+	void processFinished(int exitCode);
 
 private:
 	void processData(const QByteArray &data, const int channel);
@@ -46,9 +54,14 @@ private:
 	QProcess *m_process;
 	bool m_logStdout;
 	bool m_logStderr;
-	QTextDecoder *m_decoderStdout;
-	QTextDecoder *m_decoderStderr;
+	bool m_simplify;
+	bool m_logIsEmpty;
+	QTextCodec *m_codecStdout;
+	QTextCodec *m_codecStderr;
 	QString m_bufferStdout;
 	QString m_bufferStderr;
 	QRegExp *m_regExp;
+	QTextStream *m_logFile;
+	int m_exitCode;
+	QEventLoop *m_eventLoop;
 };
