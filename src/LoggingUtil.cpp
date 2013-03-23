@@ -96,6 +96,15 @@ static int logging_util_main(int argc, wchar_t* argv[])
 		return -1;
 	}
 
+	//Does program file exist?
+	if(!QFileInfo(parameters.childProgram).isFile())
+	{
+		printHeader();
+		fprintf(stderr, "Error: The specified program file does not exist!\n\n");
+		fprintf(stderr, "Path that could not be found:\n%s\n\n", parameters.childProgram.toUtf8().constData());
+		return -1;
+	}
+
 	//Open the log file
 	QFile logFile(parameters.logFile);
 	if(!logFile.open(QIODevice::Append))
@@ -137,15 +146,14 @@ static int logging_util_main(int argc, wchar_t* argv[])
 	return retval;
 }
 
-#define CHECK_ARGUMENT (((i+1) < argc) && (_wcsicmp(argv[i+1], L":") != 0))
+#define ARG_AT(X) (QString::fromUtf16(reinterpret_cast<const ushort*>(argv[X])).trimmed())
+#define CHECK_NEXT_ARGUMENT (((i+1) < argc) && (ARG_AT(i+1).compare(":", Qt::CaseInsensitive) != 0))
 
 /*
  * Parse the CLI args
  */
 static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 {
-	bool bChildAgrs = false;
-
 	//Setup defaults
 	parameters->childProgram.clear();
 	parameters->childArgs.clear();
@@ -163,10 +171,21 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 		return false;
 	}
 
+	//Have logger parameters?
+	bool bChildAgrs = true;
+	for(int i = 1; i < argc; i++)
+	{
+		if(!ARG_AT(i).compare(":", Qt::CaseInsensitive))
+		{
+			bChildAgrs = false;
+			break;
+		}
+	}
+
 	//Parse all parameters
 	for(int i = 1; i < argc; i++)
 	{
-		const QString current = QString::fromUtf16(reinterpret_cast<const ushort*>(argv[i])).trimmed();
+		const QString current = ARG_AT(i);
 
 		if(!bChildAgrs)
 		{
@@ -176,8 +195,8 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 			}
 			else if(!current.compare("--logfile", Qt::CaseInsensitive))
 			{
-				if(!CHECK_ARGUMENT) return false;
-				parameters->logFile = QString::fromUtf16(reinterpret_cast<const ushort*>(argv[++i])).trimmed();
+				if(!CHECK_NEXT_ARGUMENT) return false;
+				parameters->logFile = ARG_AT(++i);
 			}
 			else if(!current.compare("--only-stdout", Qt::CaseInsensitive))
 			{
@@ -199,17 +218,17 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 			}
 			else if(!current.compare("--regexp-keep", Qt::CaseInsensitive))
 			{
-				if(!CHECK_ARGUMENT) return false;
-				parameters->regExpKeep = QString::fromUtf16(reinterpret_cast<const ushort*>(argv[++i])).trimmed();
+				if(!CHECK_NEXT_ARGUMENT) return false;
+				parameters->regExpKeep = ARG_AT(++i);
 			}
 			else if(!current.compare("--regexp-skip", Qt::CaseInsensitive))
 			{
-				if(!CHECK_ARGUMENT) return false;
-				parameters->regExpSkip = QString::fromUtf16(reinterpret_cast<const ushort*>(argv[++i])).trimmed();
+				if(!CHECK_NEXT_ARGUMENT) return false;
+				parameters->regExpSkip = ARG_AT(++i);
 			}
 			else
 			{
-				return false;
+				return false; //Unkown argument!
 			}
 		}
 		else
@@ -226,8 +245,9 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 	//Generate log file name
 	if(parameters->logFile.isEmpty() && (!parameters->childProgram.isEmpty()))
 	{
+		QRegExp rx("[^a-zA-Z0-9_]");
 		QFileInfo info(parameters->childProgram);
-		parameters->logFile = QString("%1.%2.log").arg(info.completeBaseName(), QDateTime::currentDateTime().toString("yyyy-MM-dd"));
+		parameters->logFile = QString("%1.%2.log").arg(info.completeBaseName().replace(rx, "_"), QDateTime::currentDateTime().toString("yyyy-MM-dd"));
 	}
 
 	return !parameters->childProgram.isEmpty();
@@ -253,6 +273,7 @@ static void printUsage(void)
 {
 	printHeader();
 	fprintf(stderr, "Usage:\n");
+	fprintf(stderr, "  LoggingUtil.exe SomeProgram.exe [program parameters]\n");
 	fprintf(stderr, "  LoggingUtil.exe [logging options] : SomeProgram.exe [program parameters]\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Options:\n");
