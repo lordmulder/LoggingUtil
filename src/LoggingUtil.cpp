@@ -41,11 +41,12 @@
 #include <QLibraryInfo>
 
 //Internal
+#include "Version.h"
 #include "LogProcessor.h"
 
 //Version tags
-static const int VERSION_MAJOR = 2;
-static const int VERSION_MINOR = 0;
+static const int VERSION_MAJOR = VER_LOGGER_MAJOR;
+static const int VERSION_MINOR = (10 * VER_LOGGER_MINOR_HI) + VER_LOGGER_MINOR_LO;
 
 //Parameters
 class parameters_t

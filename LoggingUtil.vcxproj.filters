@@ -32,5 +32,11 @@
     <ClInclude Include="src\LogProcessor.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\Version.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="LoggingUtil.rcx" />
   </ItemGroup>
 </Project>
