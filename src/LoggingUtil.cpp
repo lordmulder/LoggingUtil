@@ -38,6 +38,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QDateTime>
+#include <QLibraryInfo>
 
 //Internal
 #include "LogProcessor.h"
@@ -78,6 +79,14 @@ static int logging_util_main(int argc, wchar_t* argv[])
 	_setmode(_fileno(stdout), _O_BINARY);
 	_setmode(_fileno(stderr), _O_BINARY);
 
+	//Check the Qt version
+	if(_stricmp(qVersion(), QT_VERSION_STR))
+	{
+		printHeader();
+		fprintf(stderr, "FATAL: Compiled with Qt v%s, but running on Qt v%s!\n\n", QT_VERSION_STR, qVersion());
+		return -1;
+	}
+
 	//Parse the CLI parameters
 	parameters_t parameters;
 	if(!parseArguments(argc, argv, &parameters))
@@ -86,6 +95,7 @@ static int logging_util_main(int argc, wchar_t* argv[])
 		return -1;
 	}
 
+	//Open the log file
 	QFile logFile(parameters.logFile);
 	if(!logFile.open(QIODevice::Append))
 	{
@@ -227,7 +237,7 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
  */
 static void printHeader(void)
 {
-	fprintf(stderr, "\nLogging Utility v%d.%02d, built on %s at %s\n", VERSION_MAJOR, VERSION_MINOR, __DATE__, __TIME__);
+	fprintf(stderr, "\nLogging Utility v%d.%02d, built %s %s (using Qt v%s)\n", VERSION_MAJOR, VERSION_MINOR, __DATE__, __TIME__, QT_VERSION_STR);
 	fprintf(stderr, "Copyright (c) 2010-2013 LoRd_MuldeR <mulder2@gmx.de>. Some rights reserved.\n");
 	fprintf(stderr, "Please visit http://www.muldersoft.com/ for news and updates!\n\n");
 	fprintf(stderr, "This program is free software: you can redistribute it and/or modify\n");
@@ -245,7 +255,7 @@ static void printUsage(void)
 	fprintf(stderr, "  LoggingUtil.exe [logging options] : SomeProgram.exe [program parameters]\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Options:\n");
-	fprintf(stderr, "  --logfile <logfile>  Specifies the log file to write to (appends)\n");
+	fprintf(stderr, "  --logfile <logfile>  Specifies the output log file (appends if file exists)\n");
 	fprintf(stderr, "  --only-stdout        Capture only output from STDOUT, ignores STDERR\n");
 	fprintf(stderr, "  --only-stderr        Capture only output from STDERR, ignores STDOUT\n");
 	fprintf(stderr, "  --no-simplify        Do NOT simplify/trimm the logged strings (default: on)\n");
