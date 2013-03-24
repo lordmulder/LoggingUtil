@@ -71,11 +71,13 @@ public:
 
 //Helper
 #define SAFE_DEL(X) do { if(X) { delete (X); X = NULL; } } while (0)
+#define QSTR2STR(X) ((X).isEmpty() ? NULL : (X).toLatin1().constData())
 
 //Forward declarations
 static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters);
 static void printUsage(void);
 static void printHeader(void);
+static QByteArray supportedCodecs(void);
 
 //Global variables
 QMutex giantLock;
@@ -93,6 +95,9 @@ static int logging_util_main(int argc, wchar_t* argv[])
 	_setmode(_fileno(stdin ), _O_BINARY);
 	_setmode(_fileno(stdout), _O_BINARY);
 	_setmode(_fileno(stderr), _O_BINARY);
+
+	const QString STDIN_MARKER = "#STDIN#";
+
 
 	//Check the Qt version
 	if(_stricmp(qVersion(), QT_VERSION_STR))
@@ -117,12 +122,15 @@ static int logging_util_main(int argc, wchar_t* argv[])
 	}
 
 	//Does program file exist?
-	if(!QFileInfo(parameters.childProgram).isFile())
+	if(parameters.childProgram.compare(STDIN_MARKER, Qt::CaseInsensitive))
 	{
-		printHeader();
-		fprintf(stderr, "ERROR: The specified program file does not exist!\n\n");
-		fprintf(stderr, "Path that could not be found:\n%s\n\n", parameters.childProgram.toUtf8().constData());
-		return -1;
+		if(!QFileInfo(parameters.childProgram).isFile())
+		{
+			printHeader();
+			fprintf(stderr, "ERROR: The specified program file does not exist!\n\n");
+			fprintf(stderr, "Path that could not be found:\n%s\n\n", QFileInfo(parameters.childProgram).absoluteFilePath().toUtf8().constData());
+			return -1;
+		}
 	}
 
 	//Open the log file
@@ -150,32 +158,40 @@ static int logging_util_main(int argc, wchar_t* argv[])
 	processor->setFilterStrings(parameters.regExpKeep, parameters.regExpSkip);
 	
 	//Setup text encoding
-	if(!processor->setTextCodecs
-	(
-		parameters.codecInp.isEmpty() ? NULL : parameters.codecInp.toLatin1().constData(),
-		parameters.codecOut.isEmpty() ? NULL : parameters.codecOut.toLatin1().constData()
-	))
+	if(!processor->setTextCodecs(QSTR2STR(parameters.codecInp), QSTR2STR(parameters.codecOut)))
 	{
 		printHeader();
 		fprintf(stderr, "ERROR: The selected text Codec is invalid!\n\n");
-		fprintf(stderr, "Supported text codecs:\n");
-		QList<QByteArray> list = QTextCodec::availableCodecs();
-		for(int i = 0; i < list.count(); i++) fprintf(stderr, ((i) ? ", %s" : "%s"), list.at(i).constData());
-		fprintf(stderr, "\n\n");
+		fprintf(stderr, "Supported text codecs:\n%s\n\n", supportedCodecs().constData());
 		delete processor;
 		delete application;
 		return -1;
 	}
 
-	//Try to start the process
-	if(!processor->startProcess(parameters.childProgram, parameters.childArgs))
+	//Try to start the child process (or STDIN reader)
+	if(parameters.childProgram.compare(STDIN_MARKER, Qt::CaseInsensitive))
 	{
-		printHeader();
-		fprintf(stderr, "ERROR: The process failed to start!\n\n");
-		fprintf(stderr, "Command that failed is:\n%s\n\n", parameters.childProgram.toUtf8().constData());
-		delete processor;
-		delete application;
-		return -1;
+		if(!processor->startProcess(parameters.childProgram, parameters.childArgs))
+		{
+			printHeader();
+			fprintf(stderr, "ERROR: The process failed to start!\n\n");
+			fprintf(stderr, "Command that failed is:\n%s\n\n", parameters.childProgram.toUtf8().constData());
+			delete processor;
+			delete application;
+			return -1;
+		}
+	}
+	else
+	{
+		if(!processor->startStdinProcessing())
+		{
+			printHeader();
+			fprintf(stderr, "ERROR: The process failed to start!\n\n");
+			fprintf(stderr, "Command that failed is:\n%s\n\n", parameters.childProgram.toUtf8().constData());
+			delete processor;
+			delete application;
+			return -1;
+		}
 	}
 	
 	int retval = processor->exec();
@@ -392,6 +408,7 @@ static void printUsage(void)
 	fprintf(stderr, "Usage:\n");
 	fprintf(stderr, "  LoggingUtil.exe SomeProgram.exe [program parameters]\n");
 	fprintf(stderr, "  LoggingUtil.exe [logging options] : SomeProgram.exe [program parameters]\n");
+	fprintf(stderr, "  SomeProgram.exe [parameters] > LoggingUtil.exe [options] : #STDIN#\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Options:\n");
 	fprintf(stderr, "  --logfile <logfile>  Specifies the output log file (appends if file exists)\n");
@@ -404,9 +421,21 @@ static void printUsage(void)
 	fprintf(stderr, "  --codec-in <name>    Setup the input text encoding (default: \"UTF-8\")\n");
 	fprintf(stderr, "  --codec-out <name>   Setup the output text encoding (default: \"UTF-8\")\n");
 	fprintf(stderr, "\n");
-	fprintf(stderr, "Example:\n");
+	fprintf(stderr, "Examples:\n");
 	fprintf(stderr, "  LoggingUtil.exe --logfile x264_log.txt : x264.exe -o output.mkv input.avs\n");
+	fprintf(stderr, "  x264.exe -o output.mkv input.avs 2> LoggingUtil.exe : #STDIN#\n");
 	fprintf(stderr, "\n");
+}
+
+/*
+ * Get list of all supported Codec names
+ */
+static QByteArray supportedCodecs(void)
+{
+	QStringList list;
+	QList<QByteArray> codecs = QTextCodec::availableCodecs();
+	foreach(const QByteArray &c, codecs) list << QString::fromLatin1(c);
+	return list.join(", ").toLatin1();
 }
 
 /*

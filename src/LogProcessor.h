@@ -30,7 +30,9 @@ class QStringList;
 class QTextStream;
 class QFile;
 class QEventLoop;
+class CInputReader;
 
+//Class CLogProcessor
 class CLogProcessor : public QObject
 {
 	Q_OBJECT
@@ -40,6 +42,8 @@ public:
 	~CLogProcessor(void);
 
 	bool startProcess(const QString &program, const QStringList &arguments);
+	bool startStdinProcessing(void);
+	
 	int exec(void);
 
 	void setCaptureStreams(const bool captureStdout, const bool captureStderr);
@@ -49,32 +53,44 @@ public:
 	bool setTextCodecs(const char *inputCodec, const char *outputCodec);
 
 public slots:
-	void forceQuit(void);
+	void forceQuit(const bool silent = false);
 
 
 private slots:
 	void readFromStdout(void);
 	void readFromStderr(void);
+	void readFromStdinp(void);
+
 	void processFinished(int exitCode);
+	void readerFinished(void);
 
 private:
 	void processData(const QByteArray &data, const int channel);
 	void logString(const QString &data, const int channel);
 
 	QProcess *m_process;
+	CInputReader *m_stdinReader;
+	
 	bool m_logStdout;
 	bool m_logStderr;
 	bool m_simplify;
 	bool m_logIsEmpty;
 	bool m_verbose;
+	
 	QTextDecoder *m_codecStdout;
 	QTextDecoder *m_codecStderr;
+	QTextDecoder *m_codecStdinp;
+
 	QString m_bufferStdout;
 	QString m_bufferStderr;
+	QString m_bufferStdinp;
+
 	QRegExp *m_regExpEOL;
 	QRegExp *m_regExpSkip;
 	QRegExp *m_regExpKeep;
+
 	QTextStream *m_logFile;
-	int m_exitCode;
 	QEventLoop *m_eventLoop;
+
+	int m_exitCode;
 };

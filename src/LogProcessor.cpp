@@ -34,10 +34,14 @@
 #include <QCoreApplication>
 #include <QTimer>
 
+//Internal
+#include "InputReader.h"
+
 //Const
 static const int CHANNEL_STDOUT = 1;
 static const int CHANNEL_STDERR = 2;
-static const int CHANNEL_OTHERS = 3;
+static const int CHANNEL_STDINP = 4;
+static const int CHANNEL_SYSMSG = 8;
 
 //Helper
 #define SAFE_DEL(X) do { if(X) { delete (X); X = NULL; } } while (0)
@@ -62,10 +66,16 @@ CLogProcessor::CLogProcessor(QFile &logFile)
 	connect(m_process, SIGNAL(readyReadStandardError()), this, SLOT(readFromStderr()));
 	connect(m_process, SIGNAL(finished(int, QProcess::ExitStatus)), this, SLOT(processFinished(int)));
 
+	//Setup STDIN reader
+	m_stdinReader = new CInputReader();
+	connect(m_stdinReader, SIGNAL(dataAvailable(quint32)), this, SLOT(readFromStdinp(void)), Qt::QueuedConnection);
+	connect(m_stdinReader, SIGNAL(finished()), this, SLOT(readerFinished(void)), Qt::QueuedConnection);
+
 	//Create default decoder
 	QTextCodec *codec = QTextCodec::codecForName("UTF-8");
 	m_codecStdout = new QTextDecoder(codec);
 	m_codecStderr = new QTextDecoder(codec);
+	m_codecStdinp = new QTextDecoder(codec);
 
 	//Setup regular exporession
 	m_regExpEOL = new QRegExp("(\\f|\\n|\\r|\\v)");
@@ -86,13 +96,12 @@ CLogProcessor::CLogProcessor(QFile &logFile)
  */
 CLogProcessor::~CLogProcessor(void)
 {
-	if(m_process)
-	{
-		m_process->kill();
-		m_process->waitForFinished();
-	}
-	
+	//Make sure, we are not still running
+	forceQuit(true);
+
+	//Clean up all heap objects
 	SAFE_DEL(m_process);
+	SAFE_DEL(m_stdinReader);
 	SAFE_DEL(m_regExpEOL);
 	SAFE_DEL(m_regExpKeep);
 	SAFE_DEL(m_regExpSkip);
@@ -100,6 +109,7 @@ CLogProcessor::~CLogProcessor(void)
 	SAFE_DEL(m_logFile);
 	SAFE_DEL(m_codecStdout);
 	SAFE_DEL(m_codecStderr);
+	SAFE_DEL(m_codecStdinp);
 }
 
 /*
@@ -112,19 +122,36 @@ bool CLogProcessor::startProcess(const QString &program, const QStringList &argu
 		return false;
 	}
 
-	if(!m_logIsEmpty) logString("---", CHANNEL_OTHERS);
-	logString(QString("Creating new process: %1 [%2]").arg(program, arguments.join("; ")), CHANNEL_OTHERS);
+	if(!m_logIsEmpty) logString("---", CHANNEL_SYSMSG);
+	logString(QString("Creating new process: %1 [%2]").arg(program, arguments.join("; ")), CHANNEL_SYSMSG);
 	
 	m_process->start(program, arguments);
 
 	if(!m_process->waitForStarted())
 	{
-		logString(QString("Process creation failed: %1").arg(m_process->errorString()) , CHANNEL_OTHERS);
+		logString(QString("Process creation failed: %1").arg(m_process->errorString()) , CHANNEL_SYSMSG);
 		m_process->kill();
 		return false;
 	}
 
-	logString(QString().sprintf("Process created successfully (PID: 0x%08X)", m_process->pid()->hProcess), CHANNEL_OTHERS);
+	logString(QString().sprintf("Process created successfully (PID: 0x%08X)", m_process->pid()->hProcess), CHANNEL_SYSMSG);
+	return true;
+}
+
+/*
+ * Start reading from Stdin
+ */
+bool  CLogProcessor::startStdinProcessing(void)
+{
+	if(m_stdinReader->isRunning())
+	{
+		return false;
+	}
+
+	if(!m_logIsEmpty) logString("---", CHANNEL_SYSMSG);
+	logString("Started logging from STDIN stream...", CHANNEL_SYSMSG);
+
+	m_stdinReader->start();
 	return true;
 }
 
@@ -137,6 +164,7 @@ int CLogProcessor::exec(void)
 	{	
 		QTimer::singleShot(0, this, SLOT(readFromStdout()));
 		QTimer::singleShot(0, this, SLOT(readFromStderr()));
+		QTimer::singleShot(0, this, SLOT(readFromStdinp()));
 		return m_eventLoop->exec();
 	}
 	else
@@ -148,13 +176,37 @@ int CLogProcessor::exec(void)
 /*
  * Force process to quit ASAP
  */
-void CLogProcessor::forceQuit(void)
+void CLogProcessor::forceQuit(const bool silent)
 {
-	logString("Aborted by user! (Ctrl+C)", CHANNEL_OTHERS);
+	if(!silent)
+	{
+		logString("Aborted by user! (Ctrl+C)", CHANNEL_SYSMSG);
+	}
+	
 	if(m_process)
 	{
-		m_process->kill();
-		m_process->waitForFinished(1000);
+		if(m_process->state() != QProcess::NotRunning)
+		{
+			if(m_process->state() == QProcess::Starting)
+			{
+				m_process->waitForStarted();
+			}
+			m_process->kill();
+			m_process->waitForFinished();
+		}
+	}
+	
+	if(m_stdinReader)
+	{
+		if(m_stdinReader->isRunning())
+		{
+			m_stdinReader->abort();
+			if(!m_stdinReader->wait(5000))
+			{
+				m_stdinReader->terminate();
+				m_stdinReader->wait();
+			}
+		}
 	}
 }
 
@@ -187,6 +239,21 @@ void CLogProcessor::readFromStderr(void)
 }
 
 /*
+ * Read from StdIn
+ */
+void CLogProcessor::readFromStdinp(void)
+{
+	QByteArray data;
+	m_stdinReader->readAllData(data);
+
+	if(data.length() > 0)
+	{
+		fwrite(data.constData(), 1, data.length(), stderr);
+		processData(data, CHANNEL_STDINP);
+	}
+}
+
+/*
  * Process data (decode and tokenize)
  */
 void CLogProcessor::processData(const QByteArray &data, const int channel)
@@ -203,6 +270,10 @@ void CLogProcessor::processData(const QByteArray &data, const int channel)
 	case CHANNEL_STDERR:
 		buffer = &m_bufferStderr;
 		decoder = m_codecStderr;
+		break;
+	case CHANNEL_STDINP:
+		buffer = &m_bufferStdinp;
+		decoder = m_codecStdinp;
 		break;
 	default:
 		throw "Bad selection!";
@@ -228,13 +299,13 @@ void CLogProcessor::processData(const QByteArray &data, const int channel)
 void CLogProcessor::logString(const QString &data, const int channel)
 {
 	//Do not any empty strings!
-	if(data.isEmpty() || ((!m_verbose) && (channel == CHANNEL_OTHERS)))
+	if(data.isEmpty() || ((!m_verbose) && (channel == CHANNEL_SYSMSG)))
 	{
 		return;
 	}
 	
 	//Filter out strings
-	if(channel != CHANNEL_OTHERS)
+	if(channel != CHANNEL_SYSMSG)
 	{
 		if(m_regExpKeep)
 		{
@@ -255,8 +326,11 @@ void CLogProcessor::logString(const QString &data, const int channel)
 	case CHANNEL_STDERR:
 		chan = 'E';
 		break;
-	case CHANNEL_OTHERS:
+	case CHANNEL_STDINP:
 		chan = 'I';
+		break;
+	case CHANNEL_SYSMSG:
+		chan = 'S';
 		break;
 	default:
 		throw "Bad selection!";
@@ -279,6 +353,9 @@ void CLogProcessor::logString(const QString &data, const int channel)
  */
 void CLogProcessor::processFinished(int exitCode)
 {
+	//Just to be sure (?)
+	m_process->waitForFinished();
+	
 	//Process pending outputs
 	readFromStdout();
 	readFromStderr();
@@ -297,8 +374,28 @@ void CLogProcessor::processFinished(int exitCode)
 	
 	//Now return the exit code
 	m_exitCode = exitCode;
-	logString(QString().sprintf("Process has terminated (Exit Code: 0x%08X)", exitCode), CHANNEL_OTHERS);
+	logString(QString().sprintf("Process has terminated (exit code: 0x%08X)", exitCode), CHANNEL_SYSMSG);
 	m_eventLoop->exit(m_exitCode);
+}
+
+/*
+ * STDIN reader has finished
+ */
+void CLogProcessor::readerFinished(void)
+{
+	//Process pending outputs
+	readFromStdinp();
+
+	//Flush buffer contents
+	if(!m_bufferStdinp.isEmpty())
+	{
+		logString(m_simplify ? m_bufferStdinp.simplified() : m_bufferStdinp, CHANNEL_STDOUT);
+		m_bufferStdinp.clear();
+	}
+	
+	//Now return the exit code
+	logString("No more data from STDIN (process has terminated)", CHANNEL_SYSMSG);
+	m_eventLoop->exit(0);
 }
 
 /*

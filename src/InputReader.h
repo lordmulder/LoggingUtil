@@ -42,7 +42,7 @@ public:
 	void abort(void);
 
 signals:
-	void dataAvailable(size_t newBytes);
+	void dataAvailable(quint32 newBytes);
 
 public slots:
 	void start(Priority priority = InheritPriority);
