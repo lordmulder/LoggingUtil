@@ -46,6 +46,7 @@ public:
 	void setSimplifyStrings(const bool simplify);
 	void setVerboseOutput(const bool verbose);
 	void setFilterStrings(const QString &regExpKeep, const QString &regExpSkip);
+	bool setTextCodecs(const char *inputCodec, const char *outputCodec);
 
 private slots:
 	void readFromStdout(void);
@@ -62,8 +63,8 @@ private:
 	bool m_simplify;
 	bool m_logIsEmpty;
 	bool m_verbose;
-	QTextCodec *m_codecStdout;
-	QTextCodec *m_codecStderr;
+	QTextDecoder *m_codecStdout;
+	QTextDecoder *m_codecStderr;
 	QString m_bufferStdout;
 	QString m_bufferStderr;
 	QRegExp *m_regExpEOL;

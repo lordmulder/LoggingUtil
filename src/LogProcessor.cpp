@@ -62,9 +62,10 @@ CLogProcessor::CLogProcessor(QFile &logFile)
 	connect(m_process, SIGNAL(readyReadStandardError()), this, SLOT(readFromStderr()));
 	connect(m_process, SIGNAL(finished(int, QProcess::ExitStatus)), this, SLOT(processFinished(int)));
 
-	//Create decoder
-	m_codecStdout = QTextCodec::codecForName("UTF-8");
-	m_codecStderr = QTextCodec::codecForName("UTF-8");
+	//Create default decoder
+	QTextCodec *codec = QTextCodec::codecForName("UTF-8");
+	m_codecStdout = new QTextDecoder(codec);
+	m_codecStderr = new QTextDecoder(codec);
 
 	//Setup regular exporession
 	m_regExpEOL = new QRegExp("(\\f|\\n|\\r|\\v)");
@@ -72,8 +73,9 @@ CLogProcessor::CLogProcessor(QFile &logFile)
 
 	//Assign the log file
 	m_logFile = new QTextStream(&logFile);
-	m_logFile->setCodec(QTextCodec::codecForName("UTF-8"));
 	m_logIsEmpty = (logFile.size() == 0);
+	m_logFile->setCodec(QTextCodec::codecForName("UTF-8"));
+	m_logFile->setGenerateByteOrderMark(m_logIsEmpty);
 	
 	//Create event loop
 	m_eventLoop = new QEventLoop();
@@ -96,6 +98,8 @@ CLogProcessor::~CLogProcessor(void)
 	SAFE_DEL(m_regExpSkip);
 	SAFE_DEL(m_eventLoop);
 	SAFE_DEL(m_logFile);
+	SAFE_DEL(m_codecStdout);
+	SAFE_DEL(m_codecStderr);
 }
 
 /*
@@ -175,7 +179,7 @@ void CLogProcessor::readFromStderr(void)
 void CLogProcessor::processData(const QByteArray &data, const int channel)
 {
 	QString *buffer = NULL;
-	QTextCodec *decoder = NULL;
+	QTextDecoder *decoder = NULL;
 	
 	switch(channel)
 	{
@@ -325,4 +329,39 @@ void CLogProcessor::setFilterStrings(const QString &regExpKeep, const QString &r
 		SAFE_DEL(m_regExpSkip);
 		m_regExpSkip = new QRegExp(regExpSkip);
 	}
+}
+
+/*
+ * Set text encodings
+ */
+bool CLogProcessor::setTextCodecs(const char *inputCodec, const char *outputCodec)
+{
+	if(inputCodec)
+	{
+		QTextCodec *codec = QTextCodec::codecForName(inputCodec);
+		if(codec)
+		{
+			SAFE_DEL(m_codecStdout); m_codecStdout = new QTextDecoder(codec);
+			SAFE_DEL(m_codecStderr); m_codecStderr = new QTextDecoder(codec);
+		}
+		else
+		{
+			return false;
+		}
+	}
+
+	if(outputCodec)
+	{
+		QTextCodec *codec = QTextCodec::codecForName(outputCodec);
+		if(codec)
+		{
+			m_logFile->setCodec(codec);
+		}
+		else
+		{
+			return false;
+		}
+	}
+
+	return true;
 }

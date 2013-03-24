@@ -39,6 +39,7 @@
 #include <QFileInfo>
 #include <QDateTime>
 #include <QLibraryInfo>
+#include <QTextCodec>
 
 //Internal
 #include "Version.h"
@@ -61,6 +62,8 @@ public:
 	bool verboseMode;
 	QString regExpKeep;
 	QString regExpSkip;
+	QString codecInp;
+	QString codecOut;
 };
 
 //Forward declarations
@@ -126,6 +129,24 @@ static int logging_util_main(int argc, wchar_t* argv[])
 	processor->setSimplifyStrings(parameters.enableSimplify);
 	processor->setVerboseOutput(parameters.verboseMode);
 	processor->setFilterStrings(parameters.regExpKeep, parameters.regExpSkip);
+	
+	//Setup text encoding
+	if(!processor->setTextCodecs
+	(
+		parameters.codecInp.isEmpty() ? NULL : parameters.codecInp.toLatin1().constData(),
+		parameters.codecOut.isEmpty() ? NULL : parameters.codecOut.toLatin1().constData()
+	))
+	{
+		printHeader();
+		fprintf(stderr, "Error: The selected text Codec is invalid!\n\n");
+		fprintf(stderr, "Supported text codecs:\n");
+		QList<QByteArray> list = QTextCodec::availableCodecs();
+		for(int i = 0; i < list.count(); i++) fprintf(stderr, ((i) ? ", %s" : "%s"), list.at(i).constData());
+		fprintf(stderr, "\n\n");
+		delete processor;
+		delete application;
+		return -1;
+	}
 
 	//Try to start the process
 	if(!processor->startProcess(parameters.childProgram, parameters.childArgs))
@@ -164,6 +185,8 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 	parameters->verboseMode = true;
 	parameters->regExpKeep.clear();
 	parameters->regExpSkip.clear();
+	parameters->codecInp.clear();
+	parameters->codecOut.clear();
 
 	//Make sure user has set parameters
 	if(argc < 2)
@@ -189,6 +212,11 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 
 		if(!bChildAgrs)
 		{
+			if(current.isEmpty())
+			{
+				continue;
+			}
+
 			if(!current.compare(":", Qt::CaseInsensitive))
 			{
 				bChildAgrs = true;
@@ -225,6 +253,16 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 			{
 				if(!CHECK_NEXT_ARGUMENT) return false;
 				parameters->regExpSkip = ARG_AT(++i);
+			}
+			else if(!current.compare("--codec-in", Qt::CaseInsensitive))
+			{
+				if(!CHECK_NEXT_ARGUMENT) return false;
+				parameters->codecInp = ARG_AT(++i);
+			}
+			else if(!current.compare("--codec-out", Qt::CaseInsensitive))
+			{
+				if(!CHECK_NEXT_ARGUMENT) return false;
+				parameters->codecOut = ARG_AT(++i);
 			}
 			else
 			{
@@ -284,6 +322,8 @@ static void printUsage(void)
 	fprintf(stderr, "  --no-verbose         Do NOT write verbose output to log file (default: on)\n");
 	fprintf(stderr, "  --regexp-keep <exp>  Keep ONLY strings that match the given RegExp\n");
 	fprintf(stderr, "  --regexp-skip <exp>  Skip all the strings that match the given RegExp\n");
+	fprintf(stderr, "  --codec-in <name>    Setup the input text encoding (default: \"UTF-8\")\n");
+	fprintf(stderr, "  --codec-out <name>   Setup the output text encoding (default: \"UTF-8\")\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Example:\n");
 	fprintf(stderr, "  LoggingUtil.exe --logfile x264_log.txt : x264.exe -o output.mkv input.avs\n");
@@ -299,10 +339,10 @@ int wmain(int argc, wchar_t* argv[])
 	{
 		logging_util_main(argc, argv);
 	}
-	__except(0)
+	__except(1)
 	{
 		/*catch all exceptions*/
-		fprintf(stderr, "\n\nFATAL ERROR: Oups, some slunks have sneaked into your system and borke it :-(\n\n");
+		fprintf(stderr, "\n\nFATAL ERROR: Oups, some slunks have sneaked into your system and broke it :-(\n\n");
 		fflush(stderr);
 		return -1;
 	}
