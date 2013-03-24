@@ -40,6 +40,8 @@
 #include <QDateTime>
 #include <QLibraryInfo>
 #include <QTextCodec>
+#include <QMutex>
+#include <QMutexLocker>
 
 //Internal
 #include "Version.h"
@@ -66,12 +68,16 @@ public:
 	QString codecOut;
 };
 
+//Helper
+#define SAFE_DEL(X) do { if(X) { delete (X); X = NULL; } } while (0)
+
 //Forward declarations
 static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters);
 static void printUsage(void);
 static void printHeader(void);
 
 //Global variables
+QMutex giantLock;
 QCoreApplication *application = NULL;
 CLogProcessor *processor = NULL;
 
@@ -125,8 +131,10 @@ static int logging_util_main(int argc, wchar_t* argv[])
 	//Create application
 	application = new QCoreApplication(dummy_argc, dummy_argv);
 
-	//Create the logger
+	//Create processor
+	QMutexLocker lock(&giantLock);
 	processor = new CLogProcessor(logFile);
+	lock.unlock();
 
 	//Setup parameters
 	processor->setCaptureStreams(parameters.captureStdout, parameters.captureStderr);
@@ -165,11 +173,11 @@ static int logging_util_main(int argc, wchar_t* argv[])
 	
 	int retval = processor->exec();
 	
-	delete processor;
-	processor = NULL;
-	
-	delete application;
-	application = NULL;
+	//Clean up
+	lock.relock();
+	SAFE_DEL(processor);
+	SAFE_DEL(application);
+	lock.unlock();
 
 	return retval;
 }
@@ -342,6 +350,8 @@ static void printUsage(void)
  */
 static BOOL WINAPI handlerRoutine(DWORD dwCtrlType)
 {
+	QMutexLocker lock(&giantLock);
+	
 	if(processor)
 	{
 		QTimer::singleShot(0, processor, SLOT(forceQuit()));
