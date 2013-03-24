@@ -27,6 +27,12 @@
     <ClCompile Include="tmp\Common\moc\MOC_LogProcessor.cpp">
       <Filter>Source Files\Generated</Filter>
     </ClCompile>
+    <ClCompile Include="src\InputReader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="tmp\Common\moc\MOC_InputReader.cpp">
+      <Filter>Source Files\Generated</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\Version.h">
@@ -38,6 +44,9 @@
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="src\LogProcessor.h">
+      <Filter>Header Files</Filter>
+    </CustomBuild>
+    <CustomBuild Include="src\InputReader.h">
       <Filter>Header Files</Filter>
     </CustomBuild>
   </ItemGroup>
