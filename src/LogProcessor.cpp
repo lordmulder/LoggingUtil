@@ -396,7 +396,7 @@ void CLogProcessor::readerFinished(void)
 	flushBuffers();
 
 	//Now return the exit code
-	logString("No more data from STDIN (process has terminated)", CHANNEL_SYSMSG);
+	logString("No more data available from STDIN (process has terminated)", CHANNEL_SYSMSG);
 	m_eventLoop->exit(0);
 }
 

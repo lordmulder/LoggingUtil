@@ -63,6 +63,7 @@ public:
 	bool captureStderr;
 	bool enableSimplify;
 	bool verboseMode;
+	bool appendLogFile;
 	QString regExpKeep;
 	QString regExpSkip;
 	QString codecInp;
@@ -141,7 +142,8 @@ static int logging_util_main(int argc, wchar_t* argv[])
 
 	//Open the log file
 	QFile logFile(parameters.logFile);
-	if(!logFile.open(QIODevice::Append))
+	QIODevice::OpenMode openFlags = (parameters.appendLogFile) ? QIODevice::Append : (QIODevice::WriteOnly | QIODevice::Truncate);
+	if(!logFile.open(openFlags))
 	{
 		printHeader();
 		fprintf(stderr, "ERROR: Failed to open log file for writing!\n\n");
@@ -169,6 +171,7 @@ static int logging_util_main(int argc, wchar_t* argv[])
 		printHeader();
 		fprintf(stderr, "ERROR: The selected text Codec is invalid!\n\n");
 		fprintf(stderr, "Supported text codecs:\n%s\n\n", supportedCodecs().constData());
+		logFile.close();
 		delete processor;
 		delete application;
 		return -1;
@@ -182,6 +185,7 @@ static int logging_util_main(int argc, wchar_t* argv[])
 			printHeader();
 			fprintf(stderr, "ERROR: The process failed to start!\n\n");
 			fprintf(stderr, "Command that failed is:\n%s\n\n", parameters.childProgram.toUtf8().constData());
+			logFile.close();
 			delete processor;
 			delete application;
 			return -1;
@@ -194,6 +198,7 @@ static int logging_util_main(int argc, wchar_t* argv[])
 			printHeader();
 			fprintf(stderr, "ERROR: The process failed to start!\n\n");
 			fprintf(stderr, "Command that failed is:\n%s\n\n", parameters.childProgram.toUtf8().constData());
+			logFile.close();
 			delete processor;
 			delete application;
 			return -1;
@@ -202,12 +207,15 @@ static int logging_util_main(int argc, wchar_t* argv[])
 	
 	//Now run event loop
 	int retval = processor->exec();
-	
+
 	//Clean up
 	lock.relock();
 	SAFE_DEL(processor);
 	SAFE_DEL(application);
 	lock.unlock();
+
+	//Close log
+	logFile.close();
 
 	return retval;
 }
@@ -241,6 +249,7 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 	parameters->captureStderr = true;
 	parameters->enableSimplify = true;
 	parameters->verboseMode = true;
+	parameters->appendLogFile = true;
 	parameters->regExpKeep.clear();
 	parameters->regExpSkip.clear();
 	parameters->codecInp.clear();
@@ -336,6 +345,10 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 		else if(!current.compare("--no-verbose", Qt::CaseInsensitive))
 		{
 			parameters->verboseMode = false;
+		}
+		else if(!current.compare("--no-append", Qt::CaseInsensitive))
+		{
+			parameters->appendLogFile = false;
 		}
 		else if(!current.compare("--regexp-keep", Qt::CaseInsensitive))
 		{
@@ -433,6 +446,7 @@ static void printUsage(void)
 	fprintf(stderr, "  --only-stderr        Capture only output from STDERR, ignores STDOUT\n");
 	fprintf(stderr, "  --no-simplify        Do NOT simplify/trimm the logged strings (default: on)\n");
 	fprintf(stderr, "  --no-verbose         Do NOT write verbose output to log file (default: on)\n");
+	fprintf(stderr, "  --no-append          Do NOT append, i.e. any existing log content is lost\n");
 	fprintf(stderr, "  --regexp-keep <exp>  Keep ONLY strings that match the given RegExp\n");
 	fprintf(stderr, "  --regexp-skip <exp>  Skip all the strings that match the given RegExp\n");
 	fprintf(stderr, "  --codec-in <name>    Setup the input text encoding (default: \"UTF-8\")\n");
