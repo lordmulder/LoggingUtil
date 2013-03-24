@@ -55,6 +55,7 @@ static const int VERSION_MINOR = (10 * VER_LOGGER_MINOR_HI) + VER_LOGGER_MINOR_L
 class parameters_t
 {
 public:
+	bool printHelp;
 	QString childProgram;
 	QStringList childArgs;
 	QString logFile;
@@ -105,15 +106,21 @@ static int logging_util_main(int argc, wchar_t* argv[])
 	parameters_t parameters;
 	if(!parseArguments(argc, argv, &parameters))
 	{
-		printUsage();
 		return -1;
+	}
+
+	//Print help screen
+	if(parameters.printHelp)
+	{
+		printUsage();
+		return 0;
 	}
 
 	//Does program file exist?
 	if(!QFileInfo(parameters.childProgram).isFile())
 	{
 		printHeader();
-		fprintf(stderr, "Error: The specified program file does not exist!\n\n");
+		fprintf(stderr, "ERROR: The specified program file does not exist!\n\n");
 		fprintf(stderr, "Path that could not be found:\n%s\n\n", parameters.childProgram.toUtf8().constData());
 		return -1;
 	}
@@ -123,7 +130,7 @@ static int logging_util_main(int argc, wchar_t* argv[])
 	if(!logFile.open(QIODevice::Append))
 	{
 		printHeader();
-		fprintf(stderr, "Error: Failed to open log file for writing!\n\n");
+		fprintf(stderr, "ERROR: Failed to open log file for writing!\n\n");
 		fprintf(stderr, "Path that failed to open is:\n%s\n\n", logFile.fileName().toUtf8().constData());
 		return -1;
 	}
@@ -150,7 +157,7 @@ static int logging_util_main(int argc, wchar_t* argv[])
 	))
 	{
 		printHeader();
-		fprintf(stderr, "Error: The selected text Codec is invalid!\n\n");
+		fprintf(stderr, "ERROR: The selected text Codec is invalid!\n\n");
 		fprintf(stderr, "Supported text codecs:\n");
 		QList<QByteArray> list = QTextCodec::availableCodecs();
 		for(int i = 0; i < list.count(); i++) fprintf(stderr, ((i) ? ", %s" : "%s"), list.at(i).constData());
@@ -164,7 +171,7 @@ static int logging_util_main(int argc, wchar_t* argv[])
 	if(!processor->startProcess(parameters.childProgram, parameters.childArgs))
 	{
 		printHeader();
-		fprintf(stderr, "Error: The process failed to start!\n\n");
+		fprintf(stderr, "ERROR: The process failed to start!\n\n");
 		fprintf(stderr, "Command that failed is:\n%s\n\n", parameters.childProgram.toUtf8().constData());
 		delete processor;
 		delete application;
@@ -182,8 +189,20 @@ static int logging_util_main(int argc, wchar_t* argv[])
 	return retval;
 }
 
-#define ARG_AT(X) (QString::fromUtf16(reinterpret_cast<const ushort*>(argv[X])).trimmed())
-#define CHECK_NEXT_ARGUMENT (((i+1) < argc) && (ARG_AT(i+1).compare(":", Qt::CaseInsensitive) != 0))
+/*
+ * Make sure there is one more argument
+ */
+#define CHECK_NEXT_ARGUMENT(LST, ARG) do \
+{ \
+	if((LST).isEmpty() || (!(LST).first().compare(OPTION_MARKER, Qt::CaseInsensitive))) \
+	{ \
+		printHeader(); \
+		fprintf(stderr, "ERROR: Argument for option '%s' is missing!\n\n", (ARG)); \
+		fprintf(stderr, "Please type \"LoggingUtil.exe --help :\" for details...\n\n"); \
+		return false; \
+	} \
+} \
+while(0)
 
 /*
  * Parse the CLI args
@@ -191,6 +210,7 @@ static int logging_util_main(int argc, wchar_t* argv[])
 static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 {
 	//Setup defaults
+	parameters->printHelp = false;
 	parameters->childProgram.clear();
 	parameters->childArgs.clear();
 	parameters->logFile.clear();
@@ -206,104 +226,148 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 	//Make sure user has set parameters
 	if(argc < 2)
 	{
-		return false;
+		parameters->printHelp = true;
+		return true;
 	}
 
-	//Have logger parameters?
-	bool bChildAgrs = true;
+	//Convert all parameters to QString's
+	QStringList list;
 	for(int i = 1; i < argc; i++)
 	{
-		if(!ARG_AT(i).compare(":", Qt::CaseInsensitive))
+		list << QString::fromUtf16(reinterpret_cast<const ushort*>(argv[i])).trimmed();
+	}
+
+	const QString OPTION_MARKER = ":";
+
+	//Have logger options?
+	bool bHaveOptions = false;
+	for(QStringList::ConstIterator iter = list.constBegin(); iter != list.constEnd(); iter++)
+	{
+		if(!(*iter).compare(OPTION_MARKER, Qt::CaseInsensitive))
 		{
-			bChildAgrs = false;
+			bHaveOptions = true;
 			break;
 		}
 	}
 
-	//Parse all parameters
-	for(int i = 1; i < argc; i++)
+	//Help screen requested?
+	if(bHaveOptions)
 	{
-		const QString current = ARG_AT(i);
-
-		if(!bChildAgrs)
+		static const char *help[] = { "--help", "-help", "/?" };
+		
+		for(QStringList::ConstIterator iter = list.constBegin(); iter != list.constEnd(); iter++)
 		{
-			if(current.isEmpty())
+			if(!(*iter).compare(OPTION_MARKER, Qt::CaseInsensitive))
 			{
-				continue;
+				break;
 			}
+			
+			for(int i = 0; i < 3; i++)
+			{
+				if(!(*iter).compare(QString::fromLatin1(help[i]), Qt::CaseInsensitive))
+				{
+					parameters->printHelp = true;
+					return true;
+				}
+			}
+		}
+	}
 
-			if(!current.compare(":", Qt::CaseInsensitive))
-			{
-				bChildAgrs = true;
-			}
-			else if(!current.compare("--logfile", Qt::CaseInsensitive))
-			{
-				if(!CHECK_NEXT_ARGUMENT) return false;
-				parameters->logFile = ARG_AT(++i);
-			}
-			else if(!current.compare("--only-stdout", Qt::CaseInsensitive))
-			{
-				parameters->captureStdout = true;
-				parameters->captureStderr = false;
-			}
-			else if(!current.compare("--only-stderr", Qt::CaseInsensitive))
-			{
-				parameters->captureStdout = false;
-				parameters->captureStderr = true;
-			}
-			else if(!current.compare("--no-simplify", Qt::CaseInsensitive))
-			{
-				parameters->enableSimplify = false;
-			}
-			else if(!current.compare("--no-verbose", Qt::CaseInsensitive))
-			{
-				parameters->verboseMode = false;
-			}
-			else if(!current.compare("--regexp-keep", Qt::CaseInsensitive))
-			{
-				if(!CHECK_NEXT_ARGUMENT) return false;
-				parameters->regExpKeep = ARG_AT(++i);
-			}
-			else if(!current.compare("--regexp-skip", Qt::CaseInsensitive))
-			{
-				if(!CHECK_NEXT_ARGUMENT) return false;
-				parameters->regExpSkip = ARG_AT(++i);
-			}
-			else if(!current.compare("--codec-in", Qt::CaseInsensitive))
-			{
-				if(!CHECK_NEXT_ARGUMENT) return false;
-				parameters->codecInp = ARG_AT(++i);
-			}
-			else if(!current.compare("--codec-out", Qt::CaseInsensitive))
-			{
-				if(!CHECK_NEXT_ARGUMENT) return false;
-				parameters->codecOut = ARG_AT(++i);
-			}
-			else
-			{
-				return false; //Unkown argument!
-			}
+	//Parse logger options
+	while(bHaveOptions && (!list.isEmpty()))
+	{
+		const QString current = list.takeFirst().simplified();
+
+		//End of logger options?
+		if(!current.compare(OPTION_MARKER, Qt::CaseInsensitive))
+		{
+			break;
+		}
+
+		//Ignore alle empty strings
+		if(current.isEmpty())
+		{
+			continue;
+		}
+
+		//Parse parameters
+		if(!current.compare("--logfile", Qt::CaseInsensitive))
+		{
+			CHECK_NEXT_ARGUMENT(list, "--logfile");
+			parameters->logFile = list.takeFirst();
+		}
+		else if(!current.compare("--only-stdout", Qt::CaseInsensitive))
+		{
+			parameters->captureStdout = true;
+			parameters->captureStderr = false;
+		}
+		else if(!current.compare("--only-stderr", Qt::CaseInsensitive))
+		{
+			parameters->captureStdout = false;
+			parameters->captureStderr = true;
+		}
+		else if(!current.compare("--no-simplify", Qt::CaseInsensitive))
+		{
+			parameters->enableSimplify = false;
+		}
+		else if(!current.compare("--no-verbose", Qt::CaseInsensitive))
+		{
+			parameters->verboseMode = false;
+		}
+		else if(!current.compare("--regexp-keep", Qt::CaseInsensitive))
+		{
+			CHECK_NEXT_ARGUMENT(list, "--regexp-keep");
+			parameters->regExpKeep = list.takeFirst();
+		}
+		else if(!current.compare("--regexp-skip", Qt::CaseInsensitive))
+		{
+			CHECK_NEXT_ARGUMENT(list, "--regexp-skip");
+			parameters->regExpSkip = list.takeFirst();
+		}
+		else if(!current.compare("--codec-in", Qt::CaseInsensitive))
+		{
+			CHECK_NEXT_ARGUMENT(list, "--codec-in");
+			parameters->codecInp = list.takeFirst();
+		}
+		else if(!current.compare("--codec-out", Qt::CaseInsensitive))
+		{
+			CHECK_NEXT_ARGUMENT(list, "--codec-out");
+			parameters->codecOut = list.takeFirst();
 		}
 		else
 		{
-			if(parameters->childProgram.isEmpty())
-			{
-				parameters->childProgram = current;
-				continue;
-			}
-			parameters->childArgs.append(current);
+			printHeader();
+			fprintf(stderr, "ERROR: Option '%s' is unknown!\n\n", current.toLatin1().constData());
+			fprintf(stderr, "Please type \"LoggingUtil.exe --help :\" for details...\n\n"); \
+			return false;
 		}
 	}
+
+	//Set child process program name
+	if(list.isEmpty())
+	{
+		printHeader();
+		fprintf(stderr, "ERROR: Program to execute has not been specified!\n\n");
+		fprintf(stderr, "Please type \"LoggingUtil.exe --help :\" for details...\n\n"); \
+		return false;
+	}
 	
+	//Set child process program name and parameters
+	parameters->childProgram = list.takeFirst();
+	while(!list.isEmpty())
+	{
+		parameters->childArgs << list.takeFirst();
+	}
+
 	//Generate log file name
 	if(parameters->logFile.isEmpty() && (!parameters->childProgram.isEmpty()))
 	{
-		QRegExp rx("[^a-zA-Z0-9_]");
 		QFileInfo info(parameters->childProgram);
+		QRegExp rx("[^a-zA-Z0-9_]");
 		parameters->logFile = QString("%1.%2.log").arg(info.completeBaseName().replace(rx, "_"), QDateTime::currentDateTime().toString("yyyy-MM-dd"));
 	}
 
-	return !parameters->childProgram.isEmpty();
+	return true;
 }
 
 /*

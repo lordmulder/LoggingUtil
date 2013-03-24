@@ -21,4 +21,4 @@
 
 #define VER_LOGGER_MAJOR    2
 #define VER_LOGGER_MINOR_HI 0
-#define VER_LOGGER_MINOR_LO 1
+#define VER_LOGGER_MINOR_LO 2
