@@ -348,7 +348,7 @@ static void printUsage(void)
 /*
  * Ctrl+C handler routine
  */
-static BOOL WINAPI handlerRoutine(DWORD dwCtrlType)
+static BOOL WINAPI ctrlHandlerRoutine(DWORD dwCtrlType)
 {
 	QMutexLocker lock(&giantLock);
 	
@@ -361,20 +361,45 @@ static BOOL WINAPI handlerRoutine(DWORD dwCtrlType)
 }
 
 /*
+ * Crash handler routine
+ */
+#pragma intrinsic(_InterlockedExchange)
+static LONG WINAPI exceptionHandlerRoutine(struct _EXCEPTION_POINTERS *ExceptionInfo)
+{
+	static volatile long bFatalFlag = 0L;
+
+	if(_InterlockedExchange(&bFatalFlag, 1L) == 0L)
+	{
+		__try
+		{
+			fprintf(stderr, "\n\nFATAL ERROR: Oups, some slunks have sneaked into your system and broke it :-(\n\n");
+			fflush(stderr);
+		}
+		__except(1)
+		{
+			TerminateProcess(GetCurrentProcess(), DWORD(-1));
+			return EXCEPTION_EXECUTE_HANDLER;
+		}
+	}
+
+	TerminateProcess(GetCurrentProcess(), DWORD(-1));
+	return EXCEPTION_EXECUTE_HANDLER;
+}
+
+/*
  * Application entry point
  */
 int wmain(int argc, wchar_t* argv[])
 {
 	__try
 	{
-		SetConsoleCtrlHandler(handlerRoutine, TRUE);
+		SetUnhandledExceptionFilter(exceptionHandlerRoutine);
+		SetConsoleCtrlHandler(ctrlHandlerRoutine, TRUE);
 		logging_util_main(argc, argv);
 	}
 	__except(1)
 	{
-		/*catch all exceptions*/
-		fprintf(stderr, "\n\nFATAL ERROR: Oups, some slunks have sneaked into your system and broke it :-(\n\n");
-		fflush(stderr);
+		exceptionHandlerRoutine(NULL);
 		return -1;
 	}
 }
