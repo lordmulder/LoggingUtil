@@ -48,6 +48,10 @@ public:
 	void setFilterStrings(const QString &regExpKeep, const QString &regExpSkip);
 	bool setTextCodecs(const char *inputCodec, const char *outputCodec);
 
+public slots:
+	void forceQuit(void);
+
+
 private slots:
 	void readFromStdout(void);
 	void readFromStderr(void);

@@ -146,6 +146,19 @@ int CLogProcessor::exec(void)
 }
 
 /*
+ * Force process to quit ASAP
+ */
+void CLogProcessor::forceQuit(void)
+{
+	logString("Aborted by user! (Ctrl+C)", CHANNEL_OTHERS);
+	if(m_process)
+	{
+		m_process->kill();
+		m_process->waitForFinished(1000);
+	}
+}
+
+/*
  * Read from StdOut
  */
 void CLogProcessor::readFromStdout(void)

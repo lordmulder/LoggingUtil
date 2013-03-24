@@ -71,6 +71,10 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters);
 static void printUsage(void);
 static void printHeader(void);
 
+//Global variables
+QCoreApplication *application = NULL;
+CLogProcessor *processor = NULL;
+
 /*
  * The Main function
  */
@@ -119,10 +123,10 @@ static int logging_util_main(int argc, wchar_t* argv[])
 	}
 
 	//Create application
-	QCoreApplication *application = new QCoreApplication(dummy_argc, dummy_argv);
+	application = new QCoreApplication(dummy_argc, dummy_argv);
 
 	//Create the logger
-	CLogProcessor *processor = new CLogProcessor(logFile);
+	processor = new CLogProcessor(logFile);
 
 	//Setup parameters
 	processor->setCaptureStreams(parameters.captureStdout, parameters.captureStderr);
@@ -162,7 +166,10 @@ static int logging_util_main(int argc, wchar_t* argv[])
 	int retval = processor->exec();
 	
 	delete processor;
+	processor = NULL;
+	
 	delete application;
+	application = NULL;
 
 	return retval;
 }
@@ -331,12 +338,26 @@ static void printUsage(void)
 }
 
 /*
+ * Ctrl+C handler routine
+ */
+static BOOL WINAPI handlerRoutine(DWORD dwCtrlType)
+{
+	if(processor)
+	{
+		QTimer::singleShot(0, processor, SLOT(forceQuit()));
+	}
+
+	return TRUE;
+}
+
+/*
  * Application entry point
  */
 int wmain(int argc, wchar_t* argv[])
 {
 	__try
 	{
+		SetConsoleCtrlHandler(handlerRoutine, TRUE);
 		logging_util_main(argc, argv);
 	}
 	__except(1)
