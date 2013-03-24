@@ -160,15 +160,27 @@ bool  CLogProcessor::startStdinProcessing(void)
  */
 int CLogProcessor::exec(void)
 {
-	if(m_process->state() == QProcess::Running)
-	{	
+	if(m_process->state() == QProcess::Running || m_stdinReader->isRunning())
+	{
+		//Make sure we will read immediately
 		QTimer::singleShot(0, this, SLOT(readFromStdout()));
 		QTimer::singleShot(0, this, SLOT(readFromStderr()));
 		QTimer::singleShot(0, this, SLOT(readFromStdinp()));
+
+		//Event processing
 		return m_eventLoop->exec();
 	}
 	else
 	{
+		//Read any pending data (might be that we already finished!)
+		readFromStdout();
+		readFromStderr();
+		readFromStdinp();
+
+		//Flush buffer contents
+		flushBuffers();
+
+		//Return last exit code
 		return m_exitCode;
 	}
 }
@@ -220,6 +232,7 @@ void CLogProcessor::readFromStdout(void)
 	if(data.length() > 0)
 	{
 		fwrite(data.constData(), 1, data.length(), stdout);
+		fflush(stdout);
 		if(m_logStdout) processData(data, CHANNEL_STDOUT);
 	}
 }
@@ -234,6 +247,7 @@ void CLogProcessor::readFromStderr(void)
 	if(data.length() > 0)
 	{
 		fwrite(data.constData(), 1, data.length(), stderr);
+		fflush(stderr);
 		if(m_logStderr) processData(data, CHANNEL_STDERR);
 	}
 }
@@ -249,6 +263,7 @@ void CLogProcessor::readFromStdinp(void)
 	if(data.length() > 0)
 	{
 		fwrite(data.constData(), 1, data.length(), stderr);
+		fflush(stderr);
 		processData(data, CHANNEL_STDINP);
 	}
 }
@@ -361,16 +376,7 @@ void CLogProcessor::processFinished(int exitCode)
 	readFromStderr();
 
 	//Flush buffer contents
-	if(m_logStdout && (!m_bufferStdout.isEmpty()))
-	{
-		logString(m_simplify ? m_bufferStdout.simplified() : m_bufferStdout, CHANNEL_STDOUT);
-		m_bufferStdout.clear();
-	}
-	if(m_logStderr && (!m_bufferStderr.isEmpty()))
-	{
-		logString(m_simplify ? m_bufferStderr.simplified() : m_bufferStderr, CHANNEL_STDERR);
-		m_bufferStderr.clear();
-	}
+	flushBuffers();
 	
 	//Now return the exit code
 	m_exitCode = exitCode;
@@ -387,15 +393,35 @@ void CLogProcessor::readerFinished(void)
 	readFromStdinp();
 
 	//Flush buffer contents
+	flushBuffers();
+
+	//Now return the exit code
+	logString("No more data from STDIN (process has terminated)", CHANNEL_SYSMSG);
+	m_eventLoop->exit(0);
+}
+
+/*
+ * FLush any pending data from buffer
+ */
+void CLogProcessor::flushBuffers(void)
+{
+	if(m_logStdout && (!m_bufferStdout.isEmpty()))
+	{
+		logString(m_simplify ? m_bufferStdout.simplified() : m_bufferStdout, CHANNEL_STDOUT);
+		m_bufferStdout.clear();
+	}
+
+	if(m_logStderr && (!m_bufferStderr.isEmpty()))
+	{
+		logString(m_simplify ? m_bufferStderr.simplified() : m_bufferStderr, CHANNEL_STDERR);
+		m_bufferStderr.clear();
+	}
+
 	if(!m_bufferStdinp.isEmpty())
 	{
 		logString(m_simplify ? m_bufferStdinp.simplified() : m_bufferStdinp, CHANNEL_STDOUT);
 		m_bufferStdinp.clear();
 	}
-	
-	//Now return the exit code
-	logString("No more data from STDIN (process has terminated)", CHANNEL_SYSMSG);
-	m_eventLoop->exit(0);
 }
 
 /*

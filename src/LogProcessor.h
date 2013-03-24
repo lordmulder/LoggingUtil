@@ -65,6 +65,7 @@ private slots:
 	void readerFinished(void);
 
 private:
+	void flushBuffers(void);
 	void processData(const QByteArray &data, const int channel);
 	void logString(const QString &data, const int channel);
 

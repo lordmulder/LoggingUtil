@@ -84,6 +84,9 @@ QMutex giantLock;
 QCoreApplication *application = NULL;
 CLogProcessor *processor = NULL;
 
+//Const
+const char *STDIN_MARKER = "#STDIN#";
+
 /*
  * The Main function
  */
@@ -95,9 +98,6 @@ static int logging_util_main(int argc, wchar_t* argv[])
 	_setmode(_fileno(stdin ), _O_BINARY);
 	_setmode(_fileno(stdout), _O_BINARY);
 	_setmode(_fileno(stderr), _O_BINARY);
-
-	const QString STDIN_MARKER = "#STDIN#";
-
 
 	//Check the Qt version
 	if(_stricmp(qVersion(), QT_VERSION_STR))
@@ -124,13 +124,19 @@ static int logging_util_main(int argc, wchar_t* argv[])
 	//Does program file exist?
 	if(parameters.childProgram.compare(STDIN_MARKER, Qt::CaseInsensitive))
 	{
-		if(!QFileInfo(parameters.childProgram).isFile())
+		QFileInfo program(parameters.childProgram);
+
+		//Check for existence
+		if(!(program.exists() && program.isFile()))
 		{
 			printHeader();
 			fprintf(stderr, "ERROR: The specified program file does not exist!\n\n");
 			fprintf(stderr, "Path that could not be found:\n%s\n\n", QFileInfo(parameters.childProgram).absoluteFilePath().toUtf8().constData());
 			return -1;
 		}
+
+		//Make absoloute path
+		parameters.childProgram = program.canonicalFilePath();
 	}
 
 	//Open the log file
@@ -194,6 +200,7 @@ static int logging_util_main(int argc, wchar_t* argv[])
 		}
 	}
 	
+	//Now run event loop
 	int retval = processor->exec();
 	
 	//Clean up
@@ -359,8 +366,8 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 		}
 	}
 
-	//Set child process program name
-	if(list.isEmpty())
+	//Check child process program name
+	if(list.isEmpty() || list.first().isEmpty())
 	{
 		printHeader();
 		fprintf(stderr, "ERROR: Program to execute has not been specified!\n\n");
@@ -376,11 +383,18 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 	}
 
 	//Generate log file name
-	if(parameters->logFile.isEmpty() && (!parameters->childProgram.isEmpty()))
+	if(parameters->logFile.isEmpty())
 	{
-		QFileInfo info(parameters->childProgram);
-		QRegExp rx("[^a-zA-Z0-9_]");
-		parameters->logFile = QString("%1.%2.log").arg(info.completeBaseName().replace(rx, "_"), QDateTime::currentDateTime().toString("yyyy-MM-dd"));
+		if(parameters->childProgram.compare(STDIN_MARKER, Qt::CaseInsensitive))
+		{
+			QFileInfo info(parameters->childProgram);
+			QRegExp rx("[^a-zA-Z0-9_]");
+			parameters->logFile = QString("%1.%2.log").arg(info.completeBaseName().replace(rx, "_"), QDateTime::currentDateTime().toString("yyyy-MM-dd"));
+		}
+		else
+		{
+			parameters->logFile = QString("STDIN.%2.log").arg(QDateTime::currentDateTime().toString("yyyy-MM-dd"));
+		}
 	}
 
 	return true;
@@ -405,12 +419,15 @@ static void printHeader(void)
 static void printUsage(void)
 {
 	printHeader();
-	fprintf(stderr, "Usage:\n");
+	fprintf(stderr, "Usage Mode #1:\n");
 	fprintf(stderr, "  LoggingUtil.exe SomeProgram.exe [program parameters]\n");
 	fprintf(stderr, "  LoggingUtil.exe [logging options] : SomeProgram.exe [program parameters]\n");
-	fprintf(stderr, "  SomeProgram.exe [parameters] > LoggingUtil.exe [options] : #STDIN#\n");
 	fprintf(stderr, "\n");
-	fprintf(stderr, "Options:\n");
+	fprintf(stderr, "Usage Mode #2:\n");
+	fprintf(stderr, "  SomeProgram.exe [parameters] | LoggingUtil.exe [options] : #STDIN#\n");
+	fprintf(stderr, "  SomeProgram.exe [parameters] 2>&1 | LoggingUtil.exe [options] : #STDIN#\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "Logging Options:\n");
 	fprintf(stderr, "  --logfile <logfile>  Specifies the output log file (appends if file exists)\n");
 	fprintf(stderr, "  --only-stdout        Capture only output from STDOUT, ignores STDERR\n");
 	fprintf(stderr, "  --only-stderr        Capture only output from STDERR, ignores STDOUT\n");
@@ -423,7 +440,7 @@ static void printUsage(void)
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Examples:\n");
 	fprintf(stderr, "  LoggingUtil.exe --logfile x264_log.txt : x264.exe -o output.mkv input.avs\n");
-	fprintf(stderr, "  x264.exe -o output.mkv input.avs 2> LoggingUtil.exe : #STDIN#\n");
+	fprintf(stderr, "  x264.exe -o output.mkv input.avs 2>&1 | LoggingUtil.exe : #STDIN#\n");
 	fprintf(stderr, "\n");
 }
 
