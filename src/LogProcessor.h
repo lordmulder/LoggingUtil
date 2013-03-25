@@ -51,6 +51,7 @@ public:
 	void setVerboseOutput(const bool verbose);
 	void setFilterStrings(const QString &regExpKeep, const QString &regExpSkip);
 	bool setTextCodecs(const char *inputCodec, const char *outputCodec);
+	void setHtmlOutput(const bool htmlOutput);
 
 public slots:
 	void forceQuit(const bool silent = false);
@@ -68,6 +69,10 @@ private:
 	void flushBuffers(void);
 	void processData(const QByteArray &data, const int channel);
 	void logString(const QString &data, const int channel);
+	void initializeLog(void);
+	void finishLog(void);
+
+	static QString escape(const QString &text);
 
 	QProcess *m_process;
 	CInputReader *m_stdinReader;
@@ -77,6 +82,7 @@ private:
 	bool m_simplify;
 	bool m_logIsEmpty;
 	bool m_verbose;
+	bool m_htmlOutput;
 	
 	QTextDecoder *m_codecStdout;
 	QTextDecoder *m_codecStderr;
@@ -92,6 +98,9 @@ private:
 
 	QTextStream *m_logFile;
 	QEventLoop *m_eventLoop;
+
+	bool m_logInitialized;
+	bool m_logFinished;
 
 	int m_exitCode;
 };

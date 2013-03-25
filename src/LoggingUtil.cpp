@@ -64,6 +64,7 @@ public:
 	bool enableSimplify;
 	bool verboseMode;
 	bool appendLogFile;
+	bool htmlOutput;
 	QString regExpKeep;
 	QString regExpSkip;
 	QString codecInp;
@@ -164,6 +165,7 @@ static int logging_util_main(int argc, wchar_t* argv[])
 	processor->setSimplifyStrings(parameters.enableSimplify);
 	processor->setVerboseOutput(parameters.verboseMode);
 	processor->setFilterStrings(parameters.regExpKeep, parameters.regExpSkip);
+	processor->setHtmlOutput(parameters.htmlOutput);
 	
 	//Setup text encoding
 	if(!processor->setTextCodecs(QSTR2STR(parameters.codecInp), QSTR2STR(parameters.codecOut)))
@@ -250,6 +252,7 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 	parameters->enableSimplify = true;
 	parameters->verboseMode = true;
 	parameters->appendLogFile = true;
+	parameters->htmlOutput = false;
 	parameters->regExpKeep.clear();
 	parameters->regExpSkip.clear();
 	parameters->codecInp.clear();
@@ -370,6 +373,11 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 			CHECK_NEXT_ARGUMENT(list, "--codec-out");
 			parameters->codecOut = list.takeFirst();
 		}
+		else if(!current.compare("--html-output", Qt::CaseInsensitive))
+		{
+			parameters->htmlOutput = true;
+			parameters->appendLogFile = false;
+		}
 		else
 		{
 			printHeader();
@@ -377,6 +385,14 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 			fprintf(stderr, "Please type \"LoggingUtil.exe --help :\" for details...\n\n"); \
 			return false;
 		}
+	}
+
+	//HTML implies verbose!
+	if(parameters->htmlOutput && (!parameters->verboseMode))
+	{
+		printHeader();
+		fprintf(stderr, "ERROR: Cannot use '--html-output' and '--no-verbose' at the same time!\n\n");
+		return false;
 	}
 
 	//Check child process program name
@@ -398,15 +414,16 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 	//Generate log file name
 	if(parameters->logFile.isEmpty())
 	{
+		const QString ext = (parameters->htmlOutput) ? "htm" : "log";
 		if(parameters->childProgram.compare(STDIN_MARKER, Qt::CaseInsensitive))
 		{
 			QFileInfo info(parameters->childProgram);
 			QRegExp rx("[^a-zA-Z0-9_]");
-			parameters->logFile = QString("%1.%2.log").arg(info.completeBaseName().replace(rx, "_"), QDateTime::currentDateTime().toString("yyyy-MM-dd"));
+			parameters->logFile = QString("%1.%2.%3").arg(info.completeBaseName().replace(rx, "_"), QDateTime::currentDateTime().toString("yyyy-MM-dd"), ext);
 		}
 		else
 		{
-			parameters->logFile = QString("STDIN.%2.log").arg(QDateTime::currentDateTime().toString("yyyy-MM-dd"));
+			parameters->logFile = QString("STDIN.%1.%2").arg(QDateTime::currentDateTime().toString("yyyy-MM-dd"), ext);
 		}
 	}
 
@@ -451,6 +468,7 @@ static void printUsage(void)
 	fprintf(stderr, "  --regexp-skip <exp>  Skip all the strings that match the given RegExp\n");
 	fprintf(stderr, "  --codec-in <name>    Setup the input text encoding (default: \"UTF-8\")\n");
 	fprintf(stderr, "  --codec-out <name>   Setup the output text encoding (default: \"UTF-8\")\n");
+	fprintf(stderr, "  --html-output        Output log as HTML code, implies NO append\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Examples:\n");
 	fprintf(stderr, "  LoggingUtil.exe --logfile x264_log.txt : x264.exe -o output.mkv input.avs\n");

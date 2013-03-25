@@ -55,7 +55,10 @@ CLogProcessor::CLogProcessor(QFile &logFile)
 	m_logStderr(true),
 	m_simplify(true),
 	m_verbose(true),
+	m_htmlOutput(false),
 	m_logIsEmpty(false),
+	m_logInitialized(false),
+	m_logFinished(false),
 	m_exitCode(-1)
 {
 	m_process = new QProcess();
@@ -122,7 +125,7 @@ bool CLogProcessor::startProcess(const QString &program, const QStringList &argu
 		return false;
 	}
 
-	if(!m_logIsEmpty) logString("---", CHANNEL_SYSMSG);
+	initializeLog();
 	logString(QString("Creating new process: %1 [%2]").arg(program, arguments.join("; ")), CHANNEL_SYSMSG);
 	
 	m_process->start(program, arguments);
@@ -148,7 +151,7 @@ bool  CLogProcessor::startStdinProcessing(void)
 		return false;
 	}
 
-	if(!m_logIsEmpty) logString("---", CHANNEL_SYSMSG);
+	initializeLog();
 	logString("Started logging from STDIN stream...", CHANNEL_SYSMSG);
 
 	m_stdinReader->start();
@@ -313,6 +316,12 @@ void CLogProcessor::processData(const QByteArray &data, const int channel)
  */
 void CLogProcessor::logString(const QString &data, const int channel)
 {
+	//No logging if not ready
+	if((!m_logInitialized) || m_logFinished)
+	{
+		return;
+	}
+
 	//Do not any empty strings!
 	if(data.isEmpty() || ((!m_verbose) && (channel == CHANNEL_SYSMSG)))
 	{
@@ -351,17 +360,70 @@ void CLogProcessor::logString(const QString &data, const int channel)
 		throw "Bad selection!";
 	}
 
-	static const QString format("yyyy-MM-dd hh:mm:ss");
+	static const QString format_date("yyyy-MM-dd");
+	static const QString format_time("hh:mm:ss");
 
-	if(m_verbose)
+	if(m_htmlOutput)
 	{
-		m_logFile->operator<<(QString("[%1] %2: %3\r\n").arg(chan, QDateTime::currentDateTime().toString(format), data));
+		QDateTime time = QDateTime::currentDateTime();
+		m_logFile->operator<<(QString("<tr><td>%1</td><td>%2</td><td>%3</td><td>%4</td></tr>\r\n").arg(chan, time.toString(format_date), time.toString(format_time), escape(data)));
+	}
+	else if(m_verbose)
+	{
+		QDateTime time = QDateTime::currentDateTime();
+		m_logFile->operator<<(QString("[%1] [%2] [%3] %4\r\n").arg(chan, time.toString(format_date), time.toString(format_time), data));
 	}
 	else
 	{
 		m_logFile->operator<<(QString("%1\r\n").arg(data));
 	}
 }
+
+/*
+ * Initialize log file
+ */
+void CLogProcessor::initializeLog(void)
+{
+	if(m_logInitialized)
+	{
+		return;
+	}
+
+	if(m_htmlOutput)
+	{
+		m_logFile->operator<<("<!DOCTYPE html>\r\n");
+		m_logFile->operator<<("<html><head><title>Log File</title></head><body><table style=\"font-family:monospace\" border>\r\n");
+		m_logFile->operator<<("<tr><td>&nbsp;</td><td><b>Date</b></td><td><b>Time</b></td><td><b>Log Message</b></td></tr>\r\n");
+	}
+	else
+	{
+		if(!m_logIsEmpty)
+		{
+			logString("---", CHANNEL_SYSMSG);
+		}
+	}
+
+	m_logInitialized = true;
+}
+
+/*
+ * Finish log file
+ */
+void CLogProcessor::finishLog(void)
+{
+	if((!m_logInitialized) || m_logFinished)
+	{
+		return;
+	}
+
+	if(m_htmlOutput)
+	{
+		m_logFile->operator<<("</table></body></html>\r\n");
+	}
+
+	m_logFinished = true;
+}
+
 
 /*
  * Process has finished
@@ -381,6 +443,8 @@ void CLogProcessor::processFinished(int exitCode)
 	//Now return the exit code
 	m_exitCode = exitCode;
 	logString(QString().sprintf("Process has terminated (exit code: 0x%08X)", exitCode), CHANNEL_SYSMSG);
+	finishLog();
+
 	m_eventLoop->exit(m_exitCode);
 }
 
@@ -397,6 +461,8 @@ void CLogProcessor::readerFinished(void)
 
 	//Now return the exit code
 	logString("No more data available from STDIN (process has terminated)", CHANNEL_SYSMSG);
+	finishLog();
+
 	m_eventLoop->exit(0);
 }
 
@@ -447,6 +513,7 @@ void CLogProcessor::setSimplifyStrings(const bool simplify)
 void CLogProcessor::setVerboseOutput(const bool verbose)
 {
 	m_verbose = verbose;
+	if(!verbose) m_htmlOutput = false;
 }
 
 /*
@@ -500,4 +567,28 @@ bool CLogProcessor::setTextCodecs(const char *inputCodec, const char *outputCode
 	}
 
 	return true;
+}
+
+/*
+ * Set html output
+ */
+void CLogProcessor::setHtmlOutput(const bool htmlOutput)
+{
+	m_htmlOutput = htmlOutput;
+	if(htmlOutput) m_verbose = true;
+}
+
+/*
+ * Escape (some) HTML characters
+ */
+QString CLogProcessor::escape(const QString &text)
+{
+	QString escaped(text);
+	
+	escaped.replace('<', "&lt;");
+	escaped.replace('>', "&gt;");
+	escaped.replace('&', "&amp;");
+	escaped.replace('"', "&quot;");
+
+	return escaped;
 }
