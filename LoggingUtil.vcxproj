@@ -186,6 +186,7 @@
       <AdditionalDependencies>QtCore.lib;Ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(SolutionDir)..\LameXP_Qt\LameXP\etc\Prerequisites\qt4_static\lib\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
+      <MinimumRequiredVersion>5.01</MinimumRequiredVersion>
     </Link>
     <PostBuildEvent>
       <Command>

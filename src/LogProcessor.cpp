@@ -458,8 +458,10 @@ void CLogProcessor::logString(const QString &data, const int channel)
 		m_logFile->operator<<(QString("%1\r\n").arg(data));
 		break;
 	case LOG_FORMAT_HTML:
-		QDateTime time = QDateTime::currentDateTime();
 		m_logFile->operator<<(QString("<tr><td>%1</td><td>%2</td><td>%3</td><td>%4</td></tr>\r\n").arg(chanId, time.toString(format_date), time.toString(format_time), escape(data)));
+		break;
+	default:
+		throw "Bad selection!";
 	}
 }
 
@@ -481,7 +483,7 @@ void CLogProcessor::initializeLog(void)
 	}
 	if((m_logFormat == LOG_FORMAT_VERBOSE) && (!m_logIsEmpty))
 	{
-		logString("-----", CHANNEL_SYSMSG);
+		m_logFile->operator<<("---------------------------\r\n");
 	}
 
 	m_logInitialized = true;
@@ -602,6 +604,7 @@ QString CLogProcessor::escape(const QString &text)
 	escaped.replace('>', "&gt;");
 	escaped.replace('&', "&amp;");
 	escaped.replace('"', "&quot;");
+	escaped.replace(' ', "&nbsp;");
 
 	return escaped;
 }
