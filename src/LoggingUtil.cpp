@@ -62,9 +62,8 @@ public:
 	bool captureStdout;
 	bool captureStderr;
 	bool enableSimplify;
-	bool verboseMode;
 	bool appendLogFile;
-	bool htmlOutput;
+	CLogProcessor::Format format;
 	QString regExpKeep;
 	QString regExpSkip;
 	QString codecInp;
@@ -163,9 +162,8 @@ static int logging_util_main(int argc, wchar_t* argv[])
 	//Setup parameters
 	processor->setCaptureStreams(parameters.captureStdout, parameters.captureStderr);
 	processor->setSimplifyStrings(parameters.enableSimplify);
-	processor->setVerboseOutput(parameters.verboseMode);
 	processor->setFilterStrings(parameters.regExpKeep, parameters.regExpSkip);
-	processor->setHtmlOutput(parameters.htmlOutput);
+	processor->setOutputFormat(parameters.format);
 	
 	//Setup text encoding
 	if(!processor->setTextCodecs(QSTR2STR(parameters.codecInp), QSTR2STR(parameters.codecOut)))
@@ -250,9 +248,8 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 	parameters->captureStdout = true;
 	parameters->captureStderr = true;
 	parameters->enableSimplify = true;
-	parameters->verboseMode = true;
 	parameters->appendLogFile = true;
-	parameters->htmlOutput = false;
+	parameters->format = CLogProcessor::LOG_FORMAT_VERBOSE;
 	parameters->regExpKeep.clear();
 	parameters->regExpSkip.clear();
 	parameters->codecInp.clear();
@@ -345,9 +342,14 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 		{
 			parameters->enableSimplify = false;
 		}
-		else if(!current.compare("--no-verbose", Qt::CaseInsensitive))
+		else if(!current.compare("--plain-output", Qt::CaseInsensitive))
 		{
-			parameters->verboseMode = false;
+			parameters->format = CLogProcessor::LOG_FORMAT_PLAIN;
+		}
+		else if(!current.compare("--html-output", Qt::CaseInsensitive))
+		{
+			parameters->format = CLogProcessor::LOG_FORMAT_HTML;
+			parameters->appendLogFile = false;
 		}
 		else if(!current.compare("--no-append", Qt::CaseInsensitive))
 		{
@@ -373,11 +375,6 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 			CHECK_NEXT_ARGUMENT(list, "--codec-out");
 			parameters->codecOut = list.takeFirst();
 		}
-		else if(!current.compare("--html-output", Qt::CaseInsensitive))
-		{
-			parameters->htmlOutput = true;
-			parameters->appendLogFile = false;
-		}
 		else
 		{
 			printHeader();
@@ -385,14 +382,6 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 			fprintf(stderr, "Please type \"LoggingUtil.exe --help :\" for details...\n\n"); \
 			return false;
 		}
-	}
-
-	//HTML implies verbose!
-	if(parameters->htmlOutput && (!parameters->verboseMode))
-	{
-		printHeader();
-		fprintf(stderr, "ERROR: Cannot use '--html-output' and '--no-verbose' at the same time!\n\n");
-		return false;
 	}
 
 	//Check child process program name
@@ -414,7 +403,7 @@ static bool parseArguments(int argc, wchar_t* argv[], parameters_t *parameters)
 	//Generate log file name
 	if(parameters->logFile.isEmpty())
 	{
-		const QString ext = (parameters->htmlOutput) ? "htm" : "log";
+		const QString ext = (parameters->format == CLogProcessor::LOG_FORMAT_HTML) ? "htm" : "log";
 		if(parameters->childProgram.compare(STDIN_MARKER, Qt::CaseInsensitive))
 		{
 			QFileInfo info(parameters->childProgram);
@@ -462,13 +451,13 @@ static void printUsage(void)
 	fprintf(stderr, "  --only-stdout        Capture only output from STDOUT, ignores STDERR\n");
 	fprintf(stderr, "  --only-stderr        Capture only output from STDERR, ignores STDOUT\n");
 	fprintf(stderr, "  --no-simplify        Do NOT simplify/trimm the logged strings (default: on)\n");
-	fprintf(stderr, "  --no-verbose         Do NOT write verbose output to log file (default: on)\n");
 	fprintf(stderr, "  --no-append          Do NOT append, i.e. any existing log content is lost\n");
+	fprintf(stderr, "  --plain-output       Create less verbose logging output\n");
+	fprintf(stderr, "  --html-output        Create HTML logging output, implies NO append\n");
 	fprintf(stderr, "  --regexp-keep <exp>  Keep ONLY strings that match the given RegExp\n");
 	fprintf(stderr, "  --regexp-skip <exp>  Skip all the strings that match the given RegExp\n");
 	fprintf(stderr, "  --codec-in <name>    Setup the input text encoding (default: \"UTF-8\")\n");
 	fprintf(stderr, "  --codec-out <name>   Setup the output text encoding (default: \"UTF-8\")\n");
-	fprintf(stderr, "  --html-output        Output log as HTML code, implies NO append\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Examples:\n");
 	fprintf(stderr, "  LoggingUtil.exe --logfile x264_log.txt : x264.exe -o output.mkv input.avs\n");

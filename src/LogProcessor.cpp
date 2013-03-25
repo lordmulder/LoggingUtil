@@ -46,6 +46,10 @@ static const int CHANNEL_SYSMSG = 8;
 //Helper
 #define SAFE_DEL(X) do { if(X) { delete (X); X = NULL; } } while (0)
 
+// ===================================================
+// Constructor & Destructor
+// ===================================================
+
 /*
  * Constructor
  */
@@ -54,13 +58,19 @@ CLogProcessor::CLogProcessor(QFile &logFile)
 	m_logStdout(true),
 	m_logStderr(true),
 	m_simplify(true),
-	m_verbose(true),
-	m_htmlOutput(false),
-	m_logIsEmpty(false),
+	m_logFormat(LOG_FORMAT_VERBOSE),
 	m_logInitialized(false),
 	m_logFinished(false),
+	m_logIsEmpty(logFile.size() == 0),
 	m_exitCode(-1)
 {
+	//Sanity check
+	if(!(logFile.isOpen() && logFile.isWritable()))
+	{
+		throw "Log file not open for writing!";
+	}
+
+	//Create process
 	m_process = new QProcess();
 	
 	//Setup process
@@ -86,7 +96,6 @@ CLogProcessor::CLogProcessor(QFile &logFile)
 
 	//Assign the log file
 	m_logFile = new QTextStream(&logFile);
-	m_logIsEmpty = (logFile.size() == 0);
 	m_logFile->setCodec(QTextCodec::codecForName("UTF-8"));
 	m_logFile->setGenerateByteOrderMark(m_logIsEmpty);
 	
@@ -114,6 +123,10 @@ CLogProcessor::~CLogProcessor(void)
 	SAFE_DEL(m_codecStderr);
 	SAFE_DEL(m_codecStdinp);
 }
+
+// ===================================================
+// Public Methods
+// ===================================================
 
 /*
  * Start the process
@@ -188,6 +201,9 @@ int CLogProcessor::exec(void)
 	}
 }
 
+// ===================================================
+// Slots
+// ===================================================
 /*
  * Force process to quit ASAP
  */
@@ -272,6 +288,75 @@ void CLogProcessor::readFromStdinp(void)
 }
 
 /*
+ * Process has finished
+ */
+void CLogProcessor::processFinished(int exitCode)
+{
+	//Just to be sure (?)
+	m_process->waitForFinished();
+	
+	//Process pending outputs
+	readFromStdout();
+	readFromStderr();
+
+	//Flush buffer contents
+	flushBuffers();
+	
+	//Now return the exit code
+	m_exitCode = exitCode;
+	logString(QString().sprintf("Process has terminated (exit code: 0x%08X)", exitCode), CHANNEL_SYSMSG);
+	finishLog();
+
+	m_eventLoop->exit(m_exitCode);
+}
+
+/*
+ * STDIN reader has finished
+ */
+void CLogProcessor::readerFinished(void)
+{
+	//Process pending outputs
+	readFromStdinp();
+
+	//Flush buffer contents
+	flushBuffers();
+
+	//Now return the exit code
+	logString("No more data available from STDIN (process has terminated)", CHANNEL_SYSMSG);
+	finishLog();
+
+	m_eventLoop->exit(0);
+}
+
+// ===================================================
+// Private Methods
+// ===================================================
+
+/*
+ * FLush any pending data from buffer
+ */
+void CLogProcessor::flushBuffers(void)
+{
+	if(m_logStdout && (!m_bufferStdout.isEmpty()))
+	{
+		logString(m_simplify ? m_bufferStdout.simplified() : m_bufferStdout, CHANNEL_STDOUT);
+		m_bufferStdout.clear();
+	}
+
+	if(m_logStderr && (!m_bufferStderr.isEmpty()))
+	{
+		logString(m_simplify ? m_bufferStderr.simplified() : m_bufferStderr, CHANNEL_STDERR);
+		m_bufferStderr.clear();
+	}
+
+	if(!m_bufferStdinp.isEmpty())
+	{
+		logString(m_simplify ? m_bufferStdinp.simplified() : m_bufferStdinp, CHANNEL_STDOUT);
+		m_bufferStdinp.clear();
+	}
+}
+
+/*
  * Process data (decode and tokenize)
  */
 void CLogProcessor::processData(const QByteArray &data, const int channel)
@@ -322,8 +407,8 @@ void CLogProcessor::logString(const QString &data, const int channel)
 		return;
 	}
 
-	//Do not any empty strings!
-	if(data.isEmpty() || ((!m_verbose) && (channel == CHANNEL_SYSMSG)))
+	//Do not log any empty strings!
+	if(data.isEmpty() || ((m_logFormat == LOG_FORMAT_PLAIN) && (channel == CHANNEL_SYSMSG)))
 	{
 		return;
 	}
@@ -341,41 +426,40 @@ void CLogProcessor::logString(const QString &data, const int channel)
 		}
 	}
 
-	QChar chan;
+	QChar chanId;
+
 	switch(channel)
 	{
 	case CHANNEL_STDOUT:
-		chan = 'O';
+		chanId = 'O';
 		break;
 	case CHANNEL_STDERR:
-		chan = 'E';
+		chanId = 'E';
 		break;
 	case CHANNEL_STDINP:
-		chan = 'I';
+		chanId = 'I';
 		break;
 	case CHANNEL_SYSMSG:
-		chan = 'S';
+		chanId = 'S';
 		break;
 	default:
 		throw "Bad selection!";
 	}
 
-	static const QString format_date("yyyy-MM-dd");
-	static const QString format_time("hh:mm:ss");
+	static const QString format_date("yyyy-MM-dd"), format_time("hh:mm:ss");
+	QDateTime time = (m_logFormat == LOG_FORMAT_PLAIN) ? QDateTime() : QDateTime::currentDateTime();
 
-	if(m_htmlOutput)
+	switch(m_logFormat)
 	{
-		QDateTime time = QDateTime::currentDateTime();
-		m_logFile->operator<<(QString("<tr><td>%1</td><td>%2</td><td>%3</td><td>%4</td></tr>\r\n").arg(chan, time.toString(format_date), time.toString(format_time), escape(data)));
-	}
-	else if(m_verbose)
-	{
-		QDateTime time = QDateTime::currentDateTime();
-		m_logFile->operator<<(QString("[%1] [%2] [%3] %4\r\n").arg(chan, time.toString(format_date), time.toString(format_time), data));
-	}
-	else
-	{
+	case LOG_FORMAT_VERBOSE:
+		m_logFile->operator<<(QString("[%1] [%2] [%3] %4\r\n").arg(chanId, time.toString(format_date), time.toString(format_time), data));
+		break;
+	case LOG_FORMAT_PLAIN:
 		m_logFile->operator<<(QString("%1\r\n").arg(data));
+		break;
+	case LOG_FORMAT_HTML:
+		QDateTime time = QDateTime::currentDateTime();
+		m_logFile->operator<<(QString("<tr><td>%1</td><td>%2</td><td>%3</td><td>%4</td></tr>\r\n").arg(chanId, time.toString(format_date), time.toString(format_time), escape(data)));
 	}
 }
 
@@ -389,18 +473,15 @@ void CLogProcessor::initializeLog(void)
 		return;
 	}
 
-	if(m_htmlOutput)
+	if((m_logFormat == LOG_FORMAT_HTML) && m_logIsEmpty)
 	{
 		m_logFile->operator<<("<!DOCTYPE html>\r\n");
 		m_logFile->operator<<("<html><head><title>Log File</title></head><body><table style=\"font-family:monospace\" border>\r\n");
 		m_logFile->operator<<("<tr><td>&nbsp;</td><td><b>Date</b></td><td><b>Time</b></td><td><b>Log Message</b></td></tr>\r\n");
 	}
-	else
+	if((m_logFormat == LOG_FORMAT_VERBOSE) && (!m_logIsEmpty))
 	{
-		if(!m_logIsEmpty)
-		{
-			logString("---", CHANNEL_SYSMSG);
-		}
+		logString("-----", CHANNEL_SYSMSG);
 	}
 
 	m_logInitialized = true;
@@ -416,7 +497,7 @@ void CLogProcessor::finishLog(void)
 		return;
 	}
 
-	if(m_htmlOutput)
+	if((m_logFormat == LOG_FORMAT_HTML) && m_logIsEmpty)
 	{
 		m_logFile->operator<<("</table></body></html>\r\n");
 	}
@@ -424,71 +505,9 @@ void CLogProcessor::finishLog(void)
 	m_logFinished = true;
 }
 
-
-/*
- * Process has finished
- */
-void CLogProcessor::processFinished(int exitCode)
-{
-	//Just to be sure (?)
-	m_process->waitForFinished();
-	
-	//Process pending outputs
-	readFromStdout();
-	readFromStderr();
-
-	//Flush buffer contents
-	flushBuffers();
-	
-	//Now return the exit code
-	m_exitCode = exitCode;
-	logString(QString().sprintf("Process has terminated (exit code: 0x%08X)", exitCode), CHANNEL_SYSMSG);
-	finishLog();
-
-	m_eventLoop->exit(m_exitCode);
-}
-
-/*
- * STDIN reader has finished
- */
-void CLogProcessor::readerFinished(void)
-{
-	//Process pending outputs
-	readFromStdinp();
-
-	//Flush buffer contents
-	flushBuffers();
-
-	//Now return the exit code
-	logString("No more data available from STDIN (process has terminated)", CHANNEL_SYSMSG);
-	finishLog();
-
-	m_eventLoop->exit(0);
-}
-
-/*
- * FLush any pending data from buffer
- */
-void CLogProcessor::flushBuffers(void)
-{
-	if(m_logStdout && (!m_bufferStdout.isEmpty()))
-	{
-		logString(m_simplify ? m_bufferStdout.simplified() : m_bufferStdout, CHANNEL_STDOUT);
-		m_bufferStdout.clear();
-	}
-
-	if(m_logStderr && (!m_bufferStderr.isEmpty()))
-	{
-		logString(m_simplify ? m_bufferStderr.simplified() : m_bufferStderr, CHANNEL_STDERR);
-		m_bufferStderr.clear();
-	}
-
-	if(!m_bufferStdinp.isEmpty())
-	{
-		logString(m_simplify ? m_bufferStdinp.simplified() : m_bufferStdinp, CHANNEL_STDOUT);
-		m_bufferStdinp.clear();
-	}
-}
+// ===================================================
+// Setter methods
+// ===================================================
 
 /*
  * Set which streams to capture
@@ -510,10 +529,9 @@ void CLogProcessor::setSimplifyStrings(const bool simplify)
 /*
  * Set verbose logging mode
  */
-void CLogProcessor::setVerboseOutput(const bool verbose)
+void CLogProcessor::setOutputFormat(const Format format)
 {
-	m_verbose = verbose;
-	if(!verbose) m_htmlOutput = false;
+	m_logFormat = format;
 }
 
 /*
@@ -569,14 +587,9 @@ bool CLogProcessor::setTextCodecs(const char *inputCodec, const char *outputCode
 	return true;
 }
 
-/*
- * Set html output
- */
-void CLogProcessor::setHtmlOutput(const bool htmlOutput)
-{
-	m_htmlOutput = htmlOutput;
-	if(htmlOutput) m_verbose = true;
-}
+// ===================================================
+// Misc Stuff
+// ===================================================
 
 /*
  * Escape (some) HTML characters

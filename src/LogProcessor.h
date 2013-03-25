@@ -41,17 +41,28 @@ public:
 	CLogProcessor(QFile &logFile);
 	~CLogProcessor(void);
 
+	//Start logging
 	bool startProcess(const QString &program, const QStringList &arguments);
 	bool startStdinProcessing(void);
 	
+	//Event processing
 	int exec(void);
 
+	//Types
+	typedef enum
+	{
+		LOG_FORMAT_PLAIN = 0,
+		LOG_FORMAT_VERBOSE = 1,
+		LOG_FORMAT_HTML = 2
+	}
+	Format;
+
+	//Setter methods
 	void setCaptureStreams(const bool captureStdout, const bool captureStderr);
 	void setSimplifyStrings(const bool simplify);
-	void setVerboseOutput(const bool verbose);
 	void setFilterStrings(const QString &regExpKeep, const QString &regExpSkip);
 	bool setTextCodecs(const char *inputCodec, const char *outputCodec);
-	void setHtmlOutput(const bool htmlOutput);
+	void setOutputFormat(const Format format);
 
 public slots:
 	void forceQuit(const bool silent = false);
@@ -80,9 +91,10 @@ private:
 	bool m_logStdout;
 	bool m_logStderr;
 	bool m_simplify;
-	bool m_logIsEmpty;
-	bool m_verbose;
-	bool m_htmlOutput;
+
+	const bool m_logIsEmpty;
+
+	Format m_logFormat;
 	
 	QTextDecoder *m_codecStdout;
 	QTextDecoder *m_codecStderr;
